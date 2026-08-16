@@ -375,12 +375,32 @@ def _save_cookies_map(cmap: dict[str, str]) -> None:
 
 def _restore_cookies() -> None:
     """On ephemeral hosts the cookies file dies with the container; restore it
-    from the stored per-platform map so login-gated platforms keep working."""
+    from the stored per-platform map so login-gated platforms keep working.
+    On hosts whose *disk* is ephemeral too (Render free), fall back to
+    COOKIES_B64 / COOKIES_TEXT env vars — env survives restarts."""
     if config.COOKIES_FILE and Path(config.COOKIES_FILE).exists():
         return
     cmap = _cookies_map()
     if cmap:
         _save_cookies_map(cmap)
+        return
+    env_text = _env_cookies_text()
+    if env_text:
+        dom = os.getenv("COOKIES_DOMAIN", "youtube.com")
+        config.COOKIES_PATH.write_text(_to_netscape(env_text, dom), encoding="utf-8")
+        config.COOKIES_FILE = str(config.COOKIES_PATH)
+
+
+def _env_cookies_text() -> str | None:
+    """Cookies supplied via env: base64 of a cookies file (safe for any shell)
+    or a raw multi-line paste (Render's env editor keeps newlines)."""
+    b64 = os.getenv("COOKIES_B64")
+    if b64:
+        try:
+            return _b64.b64decode(b64).decode()
+        except Exception:  # noqa: BLE001
+            return None
+    return os.getenv("COOKIES_TEXT") or None
 
 
 COOKIE_DOMAINS = {
@@ -426,7 +446,7 @@ def admin_cookies_status(request: Request):
     return {"configured": bool(config.COOKIES_FILE),
             "domains": cmap,
             "count": len(cmap),
-            "source": "env" if os.getenv("COOKIES_FILE")
+            "source": "env" if (os.getenv("COOKIES_FILE") or _env_cookies_text())
                       else ("dashboard" if config.COOKIES_FILE else "none")}
 
 

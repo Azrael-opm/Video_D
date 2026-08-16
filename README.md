@@ -167,6 +167,9 @@ Ops behaviors:
 4. Serve behind HTTPS (nginx/Caddy); consider IP-restricting `/admin` at the proxy
 5. Keep yt-dlp fresh: `pip install -U yt-dlp` (the Health tab warns after 14 days)
 6. Back up `nyx.sqlite3` if you care about history
+7. On ephemeral-disk hosts (Render free) the SQLite-stored cookies die on every
+   restart — set `COOKIES_B64` (or `COOKIES_TEXT`) so login-gated platforms stay
+   unlocked across restarts
 
 ---
 
@@ -213,6 +216,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 |-----|---------|---------|
 | `FFMPEG_PATH` | auto-detected | path to the ffmpeg binary/directory |
 | `COOKIES_FILE` | – | Netscape cookies.txt for login-gated content (some IG/X/TikTok) |
+| `COOKIES_B64` | – | base64 of a cookies file — for ephemeral-disk hosts (Render free) where the dashboard-saved cookies die on restart; env survives |
+| `COOKIES_TEXT` | – | raw cookie paste (Netscape export or `a=1; b=2`), same purpose as `COOKIES_B64`; `COOKIES_DOMAIN` picks the platform for raw pastes |
 | `ANALYZE_RATE_LIMIT` | `15/minute` | slowapi limit for analyze |
 | `DOWNLOAD_RATE_LIMIT` | `8/hour` | slowapi limit for downloads |
 | `PREVIEW_RATE_LIMIT` | `30/hour` | slowapi limit for 480p previews |
