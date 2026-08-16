@@ -68,14 +68,17 @@
 <body class="font-sans text-ink min-h-screen flex flex-col">
 
 <header class="sticky top-0 z-40 backdrop-blur-xl bg-surface border-b border-hairline">
-  <div class="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
-    <a href="/recode" class="flex items-center gap-2.5 font-semibold tracking-tight text-[15px]">
-      <span class="w-7 h-7 rounded-[9px] grad-btn grid place-items-center">
+  <div class="max-w-3xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-3">
+    <a href="/recode" class="flex items-center gap-2.5 font-semibold tracking-tight text-[15px] whitespace-nowrap min-w-0">
+      <span class="w-7 h-7 rounded-[9px] grad-btn grid place-items-center shrink-0">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
       </span>
-      Nyx<span class="grad-text font-bold">Downloader</span>&nbsp;· Recode Studio
+      <span class="truncate">Nyx<span class="grad-text font-bold">Downloader</span><span class="hidden sm:inline">&nbsp;· Recode Studio</span></span>
     </a>
-    <a href="/" class="text-smoke hover:text-ink text-xs transition-colors">← Downloader</a>
+    <a href="/" class="shrink-0 inline-flex items-center gap-1.5 text-smoke hover:text-ink text-xs font-medium transition-colors">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      <span class="hidden sm:inline">Downloader</span>
+    </a>
   </div>
 </header>
 
@@ -110,7 +113,7 @@
   </section>
 
   <!-- STEP 2 · file info -->
-  <section id="fileCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+  <section id="fileCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-4 sm:p-6 mt-5 fade-up">
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <h2 id="fileName" class="font-semibold truncate"></h2>
@@ -121,7 +124,7 @@
   </section>
 
   <!-- STEP 3 · pick a function -->
-  <section id="optionsCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+  <section id="optionsCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-4 sm:p-6 mt-5 fade-up">
     <label class="text-xs font-medium text-smoke uppercase tracking-wide">What should Recode do?</label>
     <div class="grid sm:grid-cols-3 gap-3 mt-2.5">
       <button data-fn="compress" class="fn-card selected text-left border border-hairline rounded-2xl p-4 bg-mist/40">
@@ -145,19 +148,19 @@
     <div id="compressControls" class="mt-5">
       <label class="text-xs font-medium text-smoke uppercase tracking-wide">Where will you post it?</label>
       <select id="platformSelect" class="ss-select mt-1.5 w-full bg-mist hover:bg-black/[.05] dark:hover:bg-white/[.07] transition rounded-xl px-4 py-3 text-[15px] font-medium pr-10 cursor-pointer">
-        <option value="tiktok">TikTok — output meets TikTok's spec (no re-compression)</option>
-        <option value="instagram">Instagram / Reels — spec-perfect output</option>
-        <option value="youtube">YouTube — spec-perfect output</option>
-        <option value="facebook">Facebook — spec-perfect output</option>
-        <option value="snapchat">Snapchat — spec-perfect output</option>
-        <option value="none">No platform — just compress</option>
+        <option value="tiktok">TikTok · upload-ready</option>
+        <option value="instagram">Instagram / Reels · upload-ready</option>
+        <option value="youtube">YouTube · upload-ready</option>
+        <option value="facebook">Facebook · upload-ready</option>
+        <option value="snapchat">Snapchat · upload-ready</option>
+        <option value="none">No platform · just compress</option>
       </select>
 
       <label class="text-xs font-medium text-smoke uppercase tracking-wide mt-4 block">Target file size (MB)</label>
-      <div class="flex gap-3 mt-1.5">
+      <div class="flex gap-2 sm:gap-3 mt-1.5">
         <input id="targetInput" type="number" min="0.1" step="0.1"
-               class="flex-1 bg-mist rounded-xl px-4 py-3 text-[15px] font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-        <button id="planBtn" class="grad-btn text-white font-semibold text-sm rounded-xl px-5 shrink-0">Check plan</button>
+               class="flex-1 min-w-0 bg-mist rounded-xl px-4 py-3 text-[15px] font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+        <button id="planBtn" class="grad-btn text-white font-semibold text-sm rounded-xl px-4 sm:px-5 shrink-0">Check plan</button>
       </div>
       <div id="sizeChips" class="flex flex-wrap gap-2 mt-3"></div>
     </div>
@@ -185,11 +188,11 @@
         <span class="text-sm font-semibold" id="planSize"></span>
       </div>
       <p id="planNote" class="text-smoke text-sm mt-2 leading-relaxed"></p>
-      <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 mt-3 text-sm text-smoke">
-        <div class="flex justify-between"><dt>Video bitrate</dt><dd id="planVbr" class="text-ink font-medium"></dd></div>
-        <div class="flex justify-between"><dt>Audio</dt><dd id="planAbr" class="text-ink font-medium"></dd></div>
-        <div class="flex justify-between"><dt>Resolution</dt><dd id="planRes" class="text-ink font-medium"></dd></div>
-        <div class="flex justify-between"><dt>Encoding</dt><dd id="planEnc" class="text-ink font-medium"></dd></div>
+      <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 mt-3 text-sm text-smoke">
+        <div class="flex justify-between gap-3"><dt>Video bitrate</dt><dd id="planVbr" class="text-ink font-medium text-right"></dd></div>
+        <div class="flex justify-between gap-3"><dt>Audio</dt><dd id="planAbr" class="text-ink font-medium text-right"></dd></div>
+        <div class="flex justify-between gap-3"><dt>Resolution</dt><dd id="planRes" class="text-ink font-medium text-right"></dd></div>
+        <div class="flex justify-between gap-3"><dt>Encoding</dt><dd id="planEnc" class="text-ink font-medium text-right"></dd></div>
       </dl>
       <div id="planWarns" class="mt-3 space-y-1.5"></div>
     </div>
@@ -205,7 +208,7 @@
   </section>
 
   <!-- STEP 4 · progress -->
-  <section id="progressCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+  <section id="progressCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-4 sm:p-6 mt-5 fade-up">
     <div class="flex items-baseline justify-between text-sm">
       <span id="stageLabel" class="font-medium">Starting…</span>
       <span id="pctLabel" class="text-smoke tabular-nums">0%</span>
