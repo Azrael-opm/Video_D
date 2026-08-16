@@ -350,14 +350,25 @@ def _restore_cookies() -> None:
             pass
 
 
-def _to_netscape(text: str) -> str:
-    """Accept Netscape cookies.txt as-is; convert a raw `a=1; b=2` paste into
-    Netscape lines for .instagram.com so casual pastes still work."""
+COOKIE_DOMAINS = {
+    "instagram.com": ".instagram.com",
+    "x.com": ".x.com",
+    "tiktok.com": ".tiktok.com",
+    "facebook.com": ".facebook.com",
+    "reddit.com": ".reddit.com",
+    "snapchat.com": ".snapchat.com",
+}
+
+
+def _to_netscape(text: str, domain: str = "instagram.com") -> str:
+    """Accept Netscape cookies.txt as-is (multi-domain); convert a raw
+    `a=1; b=2` paste into Netscape lines for the chosen platform."""
     text = text.strip()
     if not text:
         return text
     if text.startswith("# Netscape") or "\t" in text:
         return text
+    dom = COOKIE_DOMAINS.get(domain, ".instagram.com")
     pairs = re.split(r"[;\n]+", text)
     lines = ["# Netscape HTTP Cookie File"]
     for p in pairs:
@@ -365,12 +376,13 @@ def _to_netscape(text: str) -> str:
         if not p or "=" not in p:
             continue
         name, _, value = p.partition("=")
-        lines.append(f".instagram.com\tTRUE\t/\tTRUE\t0\t{name.strip()}\t{value.strip()}")
+        lines.append(f"{dom}\tTRUE\t/\tTRUE\t0\t{name.strip()}\t{value.strip()}")
     return "\n".join(lines) + "\n"
 
 
 class CookiesPayload(BaseModel):
     content: str = Field(..., min_length=10, max_length=200_000)
+    domain: str = "instagram.com"
 
 
 @app.get("/api/admin/cookies")
@@ -378,17 +390,19 @@ def admin_cookies_status(request: Request):
     _actor(request)
     return {"configured": bool(config.COOKIES_FILE),
             "source": "env" if os.getenv("COOKIES_FILE")
-                      else ("dashboard" if config.COOKIES_FILE else "none")}
+                      else ("dashboard" if config.COOKIES_FILE else "none"),
+            "domain": db.get_setting("cookies_domain") or ""}
 
 
 @app.post("/api/admin/cookies")
 def admin_cookies_set(request: Request, body: CookiesPayload):
     actor = _actor(request)
-    content = _to_netscape(body.content)
+    content = _to_netscape(body.content, body.domain)
     config.COOKIES_PATH.write_text(content, encoding="utf-8")
     config.COOKIES_FILE = str(config.COOKIES_PATH)
     db.set_setting("cookies_b64", _b64.b64encode(content.encode()).decode())
-    db.audit(actor, "cookies_set", "platform cookies stored (survives redeploys)")
+    db.set_setting("cookies_domain", body.domain)
+    db.audit(actor, "cookies_set", f"{body.domain} cookies stored (survive redeploys)")
     return {"ok": True}
 
 

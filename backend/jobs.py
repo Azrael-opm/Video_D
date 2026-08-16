@@ -193,45 +193,41 @@ def get_job(job_id: str) -> Job | None:
 
 
 def purge_expired() -> int:
-    """Remove stale jobs and their files. Returns number purged."""
-    now = time.time()
-    ttl = int(float(db.get_setting("job_ttl_seconds") or config.JOB_TTL_SECONDS))
-    removed = 0
-    with _LOCK:
-        stale = [j for j in JOBS.values() if now - j.created_at > ttl]
-        for job in stale:
-            _delete_files(job.id)
-            JOBS.pop(job.id, None)
-            db.job_delete(job.id)
-            removed += 1
-    _enforce_disk_cap()
-    return removed
+    """Housekeeping ONLY: enforce the disk cap.
+
+    Job RECORDS are never auto-deleted — the admin decides what goes. The only
+    automatic eviction is staged FILES when usage exceeds the configured disk
+    cap (set it to 0 to disable even that; records always survive).
+    """
+    return _enforce_disk_cap()
 
 
-def _enforce_disk_cap() -> None:
-    """Disk watchdog: when usage passes the configured cap, evict the oldest
-    finished jobs first until we're back under it."""
+def _enforce_disk_cap() -> int:
+    """Disk watchdog: when usage passes the configured cap, delete the oldest
+    finished FILES (never records) until we're back under it. Admins see the
+    freed space in the audit log."""
     try:
         cap_bytes = float(db.get_setting("disk_cap_gb") or 0) * 1024 ** 3
         if cap_bytes <= 0:
-            return
+            return 0
         used, _ = disk_usage()
         if used <= cap_bytes:
-            return
+            return 0
         with _LOCK:
             finished = sorted((j for j in JOBS.values()
                                if j.status in ("done", "error", "cancelled")),
                               key=lambda j: j.created_at)
+        freed = 0
         for job in finished:
             if used <= cap_bytes * 0.9:
                 break
-            _delete_files(job.id)
-            used = max(0, used - (job.filesize or 0))
-            with _LOCK:
-                JOBS.pop(job.id, None)
-            db.job_delete(job.id)
+            _delete_files(job.id)   # files only — the DB record stays
+            delta = job.filesize or 0
+            used = max(0, used - delta)
+            freed += delta
+        return freed
     except Exception:  # noqa: BLE001
-        pass
+        return 0
 
 
 # ---------------------------------------------------------------------------

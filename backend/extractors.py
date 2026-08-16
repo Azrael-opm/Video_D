@@ -537,6 +537,12 @@ def analyze(url: str) -> dict[str, Any]:
                         "This media is private or requires a login to access. "
                         "Paste your cookies in Admin → Security (or set COOKIES_FILE) to unlock it."
                     ) from exc
+                if platform == "reddit" and ("403" in msg or "blocked" in msg.lower()):
+                    raise ValueError(
+                        "Reddit blocks datacenter IPs outright. Add your Reddit cookies in "
+                        "Admin → Security, or run NyxDownloader from a home/residential "
+                        "network (your PC + Cloudflare Tunnel works great)."
+                    ) from exc
                 if "unsupported url" in msg.lower():
                     raise ValueError("This URL isn't supported. Check that it's a direct link to the post/video.") from exc
                 raise ValueError(f"Couldn't fetch this media: {msg.splitlines()[0][:300]}") from exc
@@ -755,6 +761,16 @@ def build_image_options(info: dict) -> list[dict]:
     return options
 
 
+def _has_audio(f: dict) -> bool:
+    ac = f.get("acodec")
+    if ac and ac != "none":
+        return True
+    # Some extractors (X syndication etc.) omit acodec metadata on muxed
+    # containers — a media container with video almost always carries audio.
+    return (f.get("ext") in ("mp4", "m4a", "mov", "webm", "mkv")
+            and (f.get("vcodec") or "none") != "none")
+
+
 def _best_audio(info: dict) -> Optional[dict]:
     """Best audio source. Prefers audio-only formats; falls back to the best
     combined format for platforms (TikTok, Snapchat…) that mux audio+video."""
@@ -763,7 +779,7 @@ def _best_audio(info: dict) -> Optional[dict]:
                   if (f.get("acodec") or "none") != "none" and f.get("vcodec") in (None, "none")]
     if audio_only:
         return max(audio_only, key=lambda f: (f.get("abr") or 0, f.get("preference") or 0))
-    combined = [f for f in fmts if (f.get("acodec") or "none") != "none"]
+    combined = [f for f in fmts if _has_audio(f)]
     if combined:
         return max(combined, key=lambda f: (f.get("abr") or f.get("tbr") or 0))
     return None
