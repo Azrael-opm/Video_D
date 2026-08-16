@@ -1,0 +1,29 @@
+# Dependencies & build tooling
+node_modules/
+build/node_modules/
+
+# Runtime artifacts — never commit
+backend/downloads/
+backend/*.sqlite3
+backend/*.sqlite3-wal
+backend/*.sqlite3-shm
+backend/nyx.sqlite3*
+*.log
+
+# Secrets & environment
+.env
+.env.*
+cookies.txt
+*.cookies
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

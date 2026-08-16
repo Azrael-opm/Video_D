@@ -1,0 +1,590 @@
+/* ============================================================
+   NyxDownloader — frontend application (v5)
+   Vanilla JS (no build step) + Tailwind via CDN.
+   ============================================================ */
+
+"use strict";
+
+console.log("NyxDownloader app.js v12");
+
+// --------------------------------------------------------------
+// Platform branding (inline SVG — no CDN dependency)
+// --------------------------------------------------------------
+const PLATFORMS = {
+  tiktok: {
+    name: "TikTok",
+    icon: (c = "#000") => `
+      <svg viewBox="0 0 24 24" fill="${c}" width="15" height="15">
+        <path d="M16.6 5.82a4.28 4.28 0 0 1-1.05-2.82h-3.1v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.78.12V9.75a5.76 5.76 0 1 0 4.96 5.7V9.9a7.35 7.35 0 0 0 4.3 1.38V8.2a4.3 4.3 0 0 1-3.3-2.38Z"/>
+      </svg>`,
+  },
+  instagram: {
+    name: "Instagram",
+    icon: (c = "#E1306C") => `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="${c}" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="5.5"/>
+        <circle cx="12" cy="12" r="4.2"/>
+        <circle cx="17.4" cy="6.6" r="1.15" fill="${c}" stroke="none"/>
+      </svg>`,
+  },
+  snapchat: {
+    name: "Snapchat",
+    icon: (c = "#F5C518") => `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="${c}">
+        <path d="M12 2.5c2.9 0 5.2 2.2 5.2 5.3 0 .5 0 1-.05 1.5.5.1 1-.15 1.3-.15.5 0 .95.3.95.75 0 .55-.7.85-1.35 1.1-.5.2-1.05.45-.9 1.05.4 1.6 1.5 2.9 3.1 3.3.4.1.65.45.5.8-.3.7-1.6.9-2.5 1.05-.15.3-.25.9-.55.9-.45 0-1-.3-1.75-.3-.6 0-1.2.25-1.75.8-1.15 1.15-2 1.15-2.25 1.15s-1.1 0-2.25-1.15c-.55-.55-1.15-.8-1.75-.8-.75 0-1.3.3-1.75.3-.3 0-.4-.6-.55-.9-.9-.15-2.2-.35-2.5-1.05-.15-.35.1-.7.5-.8 1.6-.4 2.7-1.7 3.1-3.3.15-.6-.4-.85-.9-1.05C4.85 10.6 4.15 10.3 4.15 9.75c0-.45.45-.75.95-.75.3 0 .8.25 1.3.15A15 15 0 0 1 6.35 7.8c0-3.1 2.3-5.3 5.2-5.3h.45Z"/>
+      </svg>`,
+  },
+  facebook: {
+    name: "Facebook",
+    icon: (c = "#1877F2") => `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="${c}">
+        <path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.5-3.89 3.78-3.89 1.09 0 2.23.2 2.23.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12Z"/>
+      </svg>`,
+  },
+  twitter: {
+    name: "X",
+    icon: (c = "#000") => `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="${c}">
+        <path d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.84-6.32L5.46 21H2.38l7.17-8.2L2 3h6.33l4.37 5.78L17.75 3Zm-1.08 16.16h1.7L7.4 4.74H5.57L16.67 19.16Z"/>
+      </svg>`,
+  },
+  reddit: {
+    name: "Reddit",
+    icon: (c = "#FF4500") => `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="${c}">
+        <circle cx="12" cy="13.5" r="7.5" opacity=".95"/>
+        <circle cx="18.8" cy="8.3" r="1.7"/>
+        <circle cx="5.2" cy="8.3" r="1.7"/>
+        <path d="M13 2.8 15.6 3.4 14.2 6" stroke="${c}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        <circle cx="12" cy="2.7" r="1.4"/>
+        <circle cx="9.3" cy="12.4" r="1.3" fill="#fff"/>
+        <circle cx="14.7" cy="12.4" r="1.3" fill="#fff"/>
+        <path d="M8.7 16.4c1 .9 2.1 1.3 3.3 1.3s2.3-.4 3.3-1.3" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+      </svg>`,
+  },
+  pinterest: {
+    name: "Pinterest",
+    icon: (c = "#E60023") => `
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="${c}">
+        <path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.631-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/>
+      </svg>`,
+  },
+  youtube: {
+    name: "YouTube",
+    icon: (c = "#FF0000") => `
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="${c}">
+        <path d="M21.6 7.2a2.5 2.5 0 0 0-1.76-1.77C18.25 5 12 5 12 5s-6.25 0-7.84.43A2.5 2.5 0 0 0 2.4 7.2 26.3 26.3 0 0 0 2 12a26.3 26.3 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.76 1.77C5.75 19 12 19 12 19s6.25 0 7.84-.43a2.5 2.5 0 0 0 1.76-1.77A26.3 26.3 0 0 0 22 12a26.3 26.3 0 0 0-.4-4.8ZM10 15.2V8.8L15.5 12 10 15.2Z"/>
+      </svg>`,
+  },
+  generic: { name: "Web", icon: () => "" },
+};
+
+// --------------------------------------------------------------
+// DOM & state
+// --------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const state = {
+  meta: null,
+  mode: "video",          // "video" | "photos" | "audio"
+  job: null,
+  pollTimer: null,
+  previewTimer: null,
+  previewUrl: null,       // finished 480p preview file
+  downloading: false,
+  blobUrl: null,
+  blobName: null,
+};
+
+const els = {
+  input: $("urlInput"), fetch: $("fetchBtn"), hint: $("urlHint"),
+  pills: $("platformPills"), toast: $("toast"),
+  skeleton: $("analyzingCard"), card: $("previewCard"),
+  thumbBox: $("thumbBox"), thumb: $("thumb"),
+  previewBadge: $("previewBadge"), playBtn: $("playPreviewBtn"),
+  durBadge: $("durBadge"), platBadge: $("platBadge"),
+  title: $("mediaTitle"), uploader: $("mediaUploader"),
+  seg: $("modeSeg"), select: $("qualitySelect"),
+  dlBtn: $("downloadBtn"), dlLabel: $("dlLabel"),
+  panel: $("progressPanel"), track: $("progressTrack"),
+  fill: $("progressFill"), stage: $("stageLabel"), pct: $("pctLabel"),
+  speed: $("speedLabel"), eta: $("etaLabel"),
+  save: $("saveLink"), reset: $("resetBtn"),
+};
+
+// --------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------
+function fmtBytes(bytes) {
+  if (!bytes) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0, n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n >= 100 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+
+function fmtDuration(s) {
+  if (!s) return "";
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+           : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function showToast(msg, kind = "error") {
+  const styles = {
+    error:   "bg-red-50 border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-400/25 dark:text-red-300",
+    success: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-400/25 dark:text-emerald-300",
+    warn:    "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-400/25 dark:text-amber-300",
+  };
+  els.toast.className = `toast max-w-2xl mx-auto mt-6 rounded-2xl border px-4 py-3 text-sm ${styles[kind]}`;
+  els.toast.textContent = msg;
+  els.toast.classList.remove("hidden");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => els.toast.classList.add("hidden"), 6000);
+}
+
+function setBusy(busy) {
+  els.fetch.disabled = busy;
+  els.fetch.textContent = busy ? "Working…" : "Fetch";
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (res.status === 429) throw new Error("Rate limit hit — please wait a moment and try again.");
+  if (!res.ok) {
+    const detail = data && (data.detail || data.error);
+    throw new Error(typeof detail === "string" ? detail : `Request failed (HTTP ${res.status}).`);
+  }
+  return data;
+}
+
+// Which download modes does this post support?
+function availableModes(m) {
+  const modes = [];
+  const composite = isComposite(m);
+  if (m.video_options.length || composite) modes.push("video");
+  if (m.image_options.length) modes.push("photos");
+  if (m.audio_options.length) modes.push("audio");
+  return modes;
+}
+
+// Photo post that carries a music track → we can synthesize "image + music" video.
+function isComposite(m) {
+  return !m.video_options.length && m.image_options.length > 0 && m.audio_options.length > 0;
+}
+
+function resetMediaUI() {
+  stopPolling();
+  if (state.previewTimer) { clearTimeout(state.previewTimer); state.previewTimer = null; }
+  if (state.blobUrl) { URL.revokeObjectURL(state.blobUrl); state.blobUrl = null; }
+  state.blobName = null;
+  state.previewUrl = null;
+  els.thumbBox.querySelectorAll("video, audio").forEach((el) => el.remove());
+  els.thumb.classList.remove("hidden");
+  els.previewBadge.classList.add("hidden");
+  els.playBtn.classList.add("hidden");
+  els.playBtn.classList.remove("flex");
+}
+
+// --------------------------------------------------------------
+// Analyze flow
+// --------------------------------------------------------------
+async function analyze() {
+  const url = els.input.value.trim();
+  if (!url) { showToast("Paste a link first.", "warn"); return; }
+
+  resetMediaUI();
+  state.meta = null; state.job = null; state.downloading = false;
+  els.toast.classList.add("hidden");
+  els.card.classList.add("hidden");
+  els.skeleton.classList.remove("hidden");
+  setBusy(true);
+
+  try {
+    const meta = await api("/api/analyze", { url });
+    state.meta = meta;
+    renderPreview();
+    maybeLoadInlinePreview();
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    els.skeleton.classList.add("hidden");
+    setBusy(false);
+  }
+}
+
+function renderPreview() {
+  const m = state.meta;
+  els.thumb.src = m.thumbnail || "";
+  els.thumb.alt = m.title || "Media preview";
+  els.durBadge.textContent = fmtDuration(m.duration);
+  els.durBadge.classList.toggle("hidden", !m.duration);
+
+  const p = PLATFORMS[m.platform] || PLATFORMS.generic;
+  els.platBadge.style.background = `${m.platform_color || "#000"}cc`;
+  els.platBadge.innerHTML = `${p.icon("#fff")} ${m.platform_name}`;
+  els.platBadge.classList.toggle("hidden", m.platform === "generic");
+
+  els.title.textContent = m.title;
+  els.uploader.textContent = m.uploader ? `by ${m.uploader}` : "";
+
+  const modes = availableModes(m);
+  state.mode = modes.includes("video") ? "video" : (modes.includes("photos") ? "photos" : "audio");
+  renderSeg(modes);
+  fillQualitySelect();
+
+  els.panel.classList.add("hidden");
+  els.dlBtn.disabled = false;
+  els.dlLabel.textContent = "Download";
+  els.card.classList.remove("hidden");
+  els.card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+const MODE_LABELS = { video: "Video", photos: "Photos", audio: "Audio" };
+
+function renderSeg(modes) {
+  els.seg.innerHTML = modes.map((mode) => `
+    <button data-mode="${mode}"
+            class="px-5 py-1.5 rounded-lg transition ${mode === state.mode ? "seg-active" : "text-smoke"}">
+      ${MODE_LABELS[mode]}
+    </button>`).join("");
+}
+
+function updateSeg() {
+  els.seg.querySelectorAll("button").forEach((b) => {
+    const active = b.dataset.mode === state.mode;
+    b.classList.toggle("seg-active", active);
+    b.classList.toggle("text-smoke", !active);
+  });
+}
+
+function fillQualitySelect() {
+  const m = state.meta;
+  let opts = [];
+  if (state.mode === "video") {
+    opts = isComposite(m)
+      ? [{ label: "Image + music · MP4 (auto quality)" }]
+      : m.video_options;
+  } else if (state.mode === "photos") {
+    opts = m.image_options;
+  } else {
+    opts = m.audio_options;
+  }
+  els.select.innerHTML = opts.map((o, i) => {
+    const size = o.filesize ? ` · ~${fmtBytes(o.filesize)}` : "";
+    const extra = o.fps && o.fps > 30 ? ` · ${Math.round(o.fps)}fps` : "";
+    return `<option value="${i}">${o.label}${extra}${state.mode !== "photos" ? size : ""}</option>`;
+  }).join("");
+}
+
+// --------------------------------------------------------------
+// Inline 480p preview — tap "Play preview", never autoplays.
+// Available everywhere EXCEPT YouTube, and only for real video posts.
+// --------------------------------------------------------------
+function maybeLoadInlinePreview() {
+  const m = state.meta;
+  if (!m || m.platform === "youtube" || !m.video_options.length) return;
+  const url = m.webpage_url || m.url;
+  els.previewBadge.classList.remove("hidden");
+  api("/api/preview", { url })
+    .then((job) => pollPreview(job.id))
+    .catch(() => els.previewBadge.classList.add("hidden"));
+}
+
+function pollPreview(jobId) {
+  if (state.previewTimer) clearTimeout(state.previewTimer);
+  const tick = async () => {
+    try {
+      const job = await api(`/api/jobs/${jobId}?t=${Date.now()}`);
+      if (job.status === "done") {
+        els.previewBadge.classList.add("hidden");
+        state.previewUrl = job.download_url;
+        els.durBadge.classList.add("hidden");         // player shows duration
+        els.playBtn.classList.remove("hidden");
+        els.playBtn.classList.add("flex");
+        return;
+      }
+      if (job.status === "error") {
+        els.previewBadge.classList.add("hidden");
+        return;
+      }
+      state.previewTimer = setTimeout(tick, 800);
+    } catch {
+      els.previewBadge.classList.add("hidden");
+    }
+  };
+  state.previewTimer = setTimeout(tick, 600);
+}
+
+els.playBtn.addEventListener("click", () => {
+  if (!state.previewUrl) return;
+  els.playBtn.classList.add("hidden");
+  els.playBtn.classList.remove("flex");
+  const video = mountPlayer(state.previewUrl);
+  if (video && video.tagName === "VIDEO") video.play().catch(() => {});
+});
+
+function mountPlayer(fileUrl, filename) {
+  const ext = (filename || fileUrl || "").split(".").pop().toLowerCase();
+  const isAudio = ["mp3", "m4a", "aac", "opus", "wav"].includes(ext);
+  els.thumbBox.querySelectorAll("video, audio").forEach((el) => el.remove());
+
+  if (isAudio) {
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "metadata";
+    audio.src = fileUrl;
+    audio.className = "absolute inset-x-3 bottom-3 h-10 rounded-lg";
+    els.thumbBox.appendChild(audio);
+    return audio;
+  }
+  const video = document.createElement("video");
+  video.controls = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  if (state.meta?.thumbnail) video.poster = state.meta.thumbnail;
+  video.src = fileUrl;
+  video.className = "absolute inset-0 w-full h-full object-contain bg-black";
+  els.thumbBox.appendChild(video);
+  els.thumb.classList.add("hidden");
+  return video;
+}
+
+// --------------------------------------------------------------
+// Download flow
+// --------------------------------------------------------------
+async function startDownload() {
+  if (!state.meta || state.downloading) return;
+  const m = state.meta;
+
+  const body = { url: m.webpage_url || m.url, mode: state.mode === "photos" ? "image" : state.mode,
+                 title: m.title };
+
+  if (state.mode === "photos") {
+    const chosen = m.image_options[els.select.value] || m.image_options[0];
+    body.image_url = chosen.url;
+  } else if (state.mode === "video" && isComposite(m)) {
+    body.image_url = m.image_options[0].url;      // slideshow from best image + post audio
+  } else if (state.mode === "video") {
+    const chosen = m.video_options[els.select.value] || m.video_options[0];
+    body.height = chosen.height;
+  } else {
+    const chosen = m.audio_options[els.select.value] || m.audio_options[0];
+    body.audio_format = chosen.audio_format;
+  }
+
+  state.downloading = true;
+  els.dlBtn.disabled = true;
+  els.dlLabel.textContent = "Preparing…";
+  els.panel.classList.remove("hidden");
+  els.save.classList.add("hidden");
+  els.reset.classList.add("hidden");
+  setProgress(0, "Queued — waiting for a worker…");
+  els.track.classList.add("progress-indeterminate");
+
+  try {
+    state.job = await api("/api/download", body);
+    state.bootId = state.job.boot_id;
+    state.pollFails = 0;
+    pollJob();
+  } catch (err) {
+    failDownload(err.message);
+  }
+}
+
+function pollJob() {
+  stopPolling();
+  const tick = async () => {
+    try {
+      const job = await api(`/api/jobs/${state.job.id}?t=${Date.now()}`);
+      state.pollFails = 0;
+      // Server rebooted mid-job → worker is gone; never freeze silently.
+      if (state.bootId && job.boot_id && job.boot_id !== state.bootId && job.status !== "done") {
+        failDownload("The server restarted while working — the job was lost. Please try again.");
+        return;
+      }
+      applyJob(job);
+      if (["queued", "downloading", "processing"].includes(job.status)) {
+        state.pollTimer = setTimeout(tick, 700);
+      }
+    } catch (err) {
+      state.pollFails = (state.pollFails || 0) + 1;
+      if (state.pollFails >= 12) { failDownload(err.message); return; }
+      els.stage.textContent = "Connection hiccup — retrying…";
+      state.pollTimer = setTimeout(tick, 1500);
+    }
+  };
+  state.pollTimer = setTimeout(tick, 500);
+}
+
+function applyJob(job) {
+  state.job = job;
+  els.track.classList.toggle("progress-indeterminate", job.status !== "downloading");
+
+  if (job.status === "queued") {
+    setProgress(0, "Queued — waiting for a worker…");
+  } else if (job.status === "downloading") {
+    const pct = Math.max(1, Math.floor(job.progress || 0));
+    const speed = job.speed ? `${fmtBytes(job.speed)}/s` : "";
+    const eta = Number.isFinite(job.eta) && job.eta > 0 ? `${Math.ceil(job.eta)}s left` : "";
+    setProgress(pct, "Downloading media…", speed, eta);
+  } else if (job.status === "processing") {
+    setProgress(100, "Processing — merging / converting…");
+  } else if (job.status === "done") {
+    setProgress(100, `Done — ${job.filename || "your file"} (${fmtBytes(job.filesize) || ""})`);
+    state.downloading = false;
+    els.dlBtn.disabled = false;
+    els.dlLabel.textContent = "Download again";
+    els.reset.classList.remove("hidden");
+    deliverFile(job);
+  } else if (job.status === "error") {
+    failDownload(job.error || "The download failed.");
+  }
+}
+
+async function deliverFile(job) {
+  try {
+    const res = await fetch(job.download_url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (state.blobUrl) URL.revokeObjectURL(state.blobUrl);
+    state.blobUrl = URL.createObjectURL(blob);
+    state.blobName = job.filename || "download";
+    triggerSave(state.blobUrl, state.blobName);
+    els.save.href = state.blobUrl;
+    els.save.setAttribute("download", state.blobName);
+    els.save.classList.remove("hidden");
+    showToast("Your download is ready — check your browser's downloads.", "success");
+  } catch {
+    els.save.href = job.download_url;
+    els.save.removeAttribute("download");
+    els.save.classList.remove("hidden");
+    triggerSave(job.download_url, job.filename);
+    showToast("File ready — if it didn't auto-save, use the 'Save file again' button.", "warn");
+  }
+}
+
+function triggerSave(href, filename) {
+  const a = document.createElement("a");
+  a.href = href;
+  if (filename) a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function setProgress(pct, stage, speed = "", eta = "") {
+  els.fill.style.width = `${Math.min(100, pct)}%`;
+  els.pct.textContent = `${Math.min(100, Math.round(pct))}%`;
+  els.stage.textContent = stage;
+  els.speed.innerHTML = speed || "&nbsp;";
+  els.eta.innerHTML = eta || "&nbsp;";
+}
+
+function failDownload(msg) {
+  stopPolling();
+  els.track.classList.remove("progress-indeterminate");
+  state.downloading = false;
+  els.dlBtn.disabled = false;
+  els.dlLabel.textContent = "Retry download";
+  els.reset.classList.remove("hidden");
+  setProgress(0, "");
+  els.stage.textContent = "Something went wrong";
+  showToast(msg);
+}
+
+function stopPolling() {
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+}
+
+// --------------------------------------------------------------
+// Theme toggle
+// --------------------------------------------------------------
+function paintThemeIcon() {
+  const dark = document.documentElement.classList.contains("dark");
+  $("iconSun").classList.toggle("hidden", !dark);
+  $("iconMoon").classList.toggle("hidden", dark);
+}
+
+$("themeToggle").addEventListener("click", () => {
+  const isDark = !document.documentElement.classList.contains("dark");
+  document.documentElement.classList.toggle("dark", isDark);
+  try { localStorage.setItem("ss-theme", isDark ? "dark" : "light"); } catch (e) {}
+  paintThemeIcon();
+});
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+  let saved = null;
+  try { saved = localStorage.getItem("ss-theme"); } catch (err) {}
+  if (saved) return;
+  document.documentElement.classList.toggle("dark", e.matches);
+  paintThemeIcon();
+});
+
+// --------------------------------------------------------------
+// Wiring
+// --------------------------------------------------------------
+function renderPills() {
+  els.pills.innerHTML = Object.entries(PLATFORMS)
+    .filter(([k]) => k !== "generic")
+    .map(([key, p]) => `
+      <span class="platform-pill flex items-center gap-2 bg-surface border border-hairline rounded-full
+                   px-3.5 py-2 text-[13px] font-medium text-smoke shadow-pill transition-all"
+            data-platform="${key}">
+        ${p.icon()} ${p.name}
+      </span>`).join("");
+}
+
+function setActivePill(platform) {
+  document.querySelectorAll(".platform-pill").forEach((el) =>
+    el.classList.toggle("active", el.dataset.platform === platform));
+}
+
+function onInput() {
+  const url = els.input.value.trim();
+  const host = (() => { try { return new URL(url.includes("://") ? url : `https://${url}`).hostname; } catch { return ""; } })();
+  const platform = Object.keys(PLATFORMS).find((k) => {
+    const pats = { tiktok: /tiktok/, instagram: /instagram/, snapchat: /snapchat/,
+                   facebook: /facebook|fb\./, twitter: /(^|\.)(twitter|x)\.|^t\.co$/,
+                   reddit: /reddit|redd\.it/, pinterest: /pinterest|pin\.it/,
+                   youtube: /youtube|youtu\.be/ };
+    return pats[k]?.test(host);
+  });
+  setActivePill(platform || "");
+  els.hint.textContent = platform
+    ? `${PLATFORMS[platform].name} link detected — hit Fetch.`
+    : "Tip: paste a link and we'll detect the platform automatically.";
+}
+
+renderPills();
+paintThemeIcon();
+els.fetch.addEventListener("click", analyze);
+els.dlBtn.addEventListener("click", startDownload);
+els.reset.addEventListener("click", () => location.reload());   // "Download another file"
+els.input.addEventListener("input", onInput);
+els.input.addEventListener("keydown", (e) => { if (e.key === "Enter") analyze(); });
+
+els.seg.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-mode]");
+  if (!btn) return;
+  state.mode = btn.dataset.mode;
+  updateSeg();
+  fillQualitySelect();
+});
+
+document.addEventListener("paste", (e) => {
+  if (document.activeElement === els.input) return;
+  const text = (e.clipboardData || window.clipboardData)?.getData("text") || "";
+  if (/^https?:\/\//i.test(text.trim())) {
+    els.input.value = text.trim();
+    onInput();
+    e.preventDefault();
+  }
+});

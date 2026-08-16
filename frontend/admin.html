@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>NyxDownloader — Admin Console</title>
+<script>
+(function () {
+  var saved = null;
+  try { saved = localStorage.getItem("ss-theme"); } catch (e) {}
+  var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle("dark", dark);
+})();
+</script>
+<link rel="stylesheet" href="/tailwind.css" />
+<style>
+  :root { --c-ink:29 29 31; --c-smoke:117 117 122; --c-mist:245 245 247;
+          --hairline:rgba(0,0,0,.08); --surface:rgba(255,255,255,.85); --surface-solid:#ffffff;
+          --g1:#0a84ff; --g2:#5e5ce6; --g3:#bf5af2; color-scheme:light; }
+  .dark { --c-ink:240 240 243; --c-smoke:158 158 165; --c-mist:28 28 31;
+          --hairline:rgba(255,255,255,.09); --surface:rgba(30,30,33,.8); --surface-solid:#1c1c1f;
+          color-scheme:dark; }
+  body { background:
+    radial-gradient(1100px 500px at 90% -10%, rgba(94,92,230,.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 15%, rgba(10,132,255,.05), transparent 55%), #f4f4f6; }
+  .dark body { background:
+    radial-gradient(1100px 500px at 90% -10%, rgba(94,92,230,.16), transparent 60%),
+    radial-gradient(900px 500px at -10% 15%, rgba(10,132,255,.10), transparent 55%), #0a0a0c; }
+
+  .grad-text { background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3));
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .grad-btn { background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3));
+    background-size:200% 100%; transition:background-position .5s ease, transform .12s ease, box-shadow .3s ease; }
+  .grad-btn:hover:not(:disabled) { background-position:100% 0; box-shadow:0 6px 20px -6px rgba(94,92,230,.5); }
+  .grad-btn:active:not(:disabled) { transform:scale(.97); }
+  .grad-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+  .panel { background:var(--surface-solid); border:1px solid var(--hairline);
+    border-radius:1.25rem; box-shadow:0 1px 2px rgba(0,0,0,.03), 0 10px 30px -18px rgba(0,0,0,.15);
+    transition:transform .2s ease, box-shadow .3s ease; }
+  .panel-hover:hover { transform:translateY(-2px); box-shadow:0 2px 4px rgba(0,0,0,.04), 0 18px 40px -18px rgba(0,0,0,.22); }
+
+  .nav-item { display:flex; align-items:center; gap:.7rem; padding:.6rem .85rem; border-radius:.8rem;
+    font-size:.875rem; font-weight:500; color:rgb(var(--c-smoke)); transition:all .18s ease;
+    border:1px solid transparent; white-space:nowrap; }
+  .nav-item:hover { color:rgb(var(--c-ink)); background:rgba(120,120,128,.08); }
+  .nav-item.active { color:#fff; background:linear-gradient(90deg,var(--g1),var(--g2));
+    box-shadow:0 6px 18px -6px rgba(94,92,230,.55); }
+  .nav-item.active svg { opacity:1; }
+
+  .fade-in { animation:fadeUp .45s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes fadeUp { from{opacity:0; transform:translateY(12px)} to{opacity:1; transform:none} }
+
+  .pulse-dot { position:relative; width:8px; height:8px; border-radius:9999px; background:#34c759; }
+  .pulse-dot::after { content:""; position:absolute; inset:-4px; border-radius:9999px;
+    border:2px solid rgba(52,199,89,.5); animation:pulseRing 1.8s ease-out infinite; }
+  @keyframes pulseRing { 0%{transform:scale(.5); opacity:1} 100%{transform:scale(1.5); opacity:0} }
+
+  .status-pill { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .6rem;
+    border-radius:.55rem; font-size:.72rem; font-weight:600; letter-spacing:.01em; }
+  .status-pill .dot { width:6px; height:6px; border-radius:9999px; background:currentColor;
+    box-shadow:0 0 8px currentColor; }
+
+  .bar-anim { transition:width .8s cubic-bezier(.22,1,.36,1); }
+  .ring-fg { transition:stroke-dashoffset 1s cubic-bezier(.22,1,.36,1); }
+
+  .toast-anim { animation:toastIn .35s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes toastIn { from{opacity:0; transform:translate(-50%,14px)} to{opacity:1; transform:translate(-50%,0)} }
+
+  input, select { color-scheme:inherit; }
+  .dark select { background-color:#2c2c2e; color:#f0f0f3; }
+  .dark select option { background-color:#2c2c2e; color:#f0f0f3; }
+
+  .scroll-thin::-webkit-scrollbar { width:6px; height:6px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background:rgba(120,120,128,.3); border-radius:3px; }
+</style>
+</head>
+<body class="font-sans text-ink min-h-screen">
+
+<!-- ═══════════ LOGIN ═══════════ -->
+<div id="loginView" class="hidden min-h-screen grid place-items-center px-5">
+  <div class="panel p-8 w-full max-w-sm fade-in">
+    <div class="flex items-center gap-2.5 font-semibold tracking-tight text-lg">
+      <span class="w-9 h-9 rounded-xl grad-btn grid place-items-center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M4 21h16"/></svg>
+      </span>
+      Nyx<span class="grad-text font-bold">Downloader</span>
+    </div>
+    <p class="text-smoke text-sm mt-2">Sign in to the admin console.</p>
+    <input id="userInput" type="text" placeholder="Username" value="admin"
+           class="mt-5 w-full bg-mist rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+    <input id="pwInput" type="password" placeholder="Password"
+           class="mt-2.5 w-full bg-mist rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+    <input id="codeInput" type="text" placeholder="2FA code" class="hidden mt-2.5 w-full bg-mist rounded-xl px-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+    <button id="loginBtn" class="grad-btn w-full mt-3 text-white font-semibold rounded-xl py-3">Sign in</button>
+    <p id="loginErr" class="hidden text-red-500 text-sm mt-3"></p>
+  </div>
+</div>
+
+<!-- ═══════════ DASHBOARD ═══════════ -->
+<div id="dashView" class="hidden min-h-screen flex flex-col md:flex-row">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="md:w-60 md:min-h-screen shrink-0 border-b md:border-b-0 md:border-r border-hairline bg-surface backdrop-blur-xl md:sticky md:top-0 md:self-start z-30">
+    <div class="flex md:flex-col items-center md:items-stretch gap-3 md:gap-0 px-4 py-3 md:py-5">
+      <div class="flex items-center gap-2.5 font-semibold tracking-tight">
+        <span class="w-8 h-8 rounded-[10px] grad-btn grid place-items-center shrink-0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M4 21h16"/></svg>
+        </span>
+        <div class="leading-tight">
+          <div>Nyx<span class="grad-text font-bold">Downloader</span></div>
+          <div class="text-[10px] text-smoke font-normal tracking-wide uppercase">Admin console</div>
+        </div>
+      </div>
+
+      <nav id="sideNav" class="flex md:flex-col gap-1 md:mt-6 overflow-x-auto scroll-thin flex-1 md:flex-none">
+        <button class="nav-item" data-tab="overview"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
+        <button class="nav-item" data-tab="jobs"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Jobs</button>
+        <button class="nav-item" data-tab="health"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Platform health</button>
+        <button class="nav-item" data-tab="abuse"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Abuse</button>
+        <button class="nav-item" data-tab="settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg>Settings</button>
+        <button class="nav-item" data-tab="security"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Security</button>
+        <button class="nav-item" data-tab="maintenance"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Maintenance</button>
+      </nav>
+
+      <div class="hidden md:block mt-auto pt-5 border-t border-hairline">
+        <div class="flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded-full bg-mist grid place-items-center text-xs font-bold uppercase" id="meAvatar">A</span>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium truncate" id="meName">admin</p>
+            <p class="text-[11px] text-smoke" id="meSub">session active</p>
+          </div>
+          <button id="logoutBtn" title="Log out" class="text-smoke hover:text-red-500 transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <div class="flex-1 min-w-0">
+    <header class="sticky top-0 z-20 backdrop-blur-xl bg-surface border-b border-hairline">
+      <div class="px-5 md:px-7 h-14 flex items-center justify-between gap-3">
+        <h1 id="pageTitle" class="font-semibold tracking-tight">Overview</h1>
+        <div class="flex items-center gap-3">
+          <span class="hidden sm:flex items-center gap-2 text-xs text-smoke">
+            <span class="pulse-dot"></span>
+            live · updated <span id="agoLabel">0s</span> ago
+          </span>
+          <button id="refreshBtn" title="Refresh now" class="w-8 h-8 grid place-items-center rounded-lg bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] transition-colors">
+            <svg id="refreshIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          </button>
+          <button id="logoutBtnMobile" class="md:hidden text-smoke hover:text-red-500">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="px-5 md:px-7 py-6 max-w-6xl">
+
+      <!-- ══ OVERVIEW ══ -->
+      <section id="tab-overview" class="tabpane space-y-5">
+        <div id="statCards" class="grid grid-cols-2 lg:grid-cols-4 gap-4"></div>
+        <div class="grid lg:grid-cols-3 gap-5">
+          <div class="panel p-5 lg:col-span-2">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="font-semibold text-sm">Jobs per hour <span class="text-smoke font-normal" id="jobsChartSub"></span></h2>
+              <select id="seriesRange" class="bg-mist text-xs rounded-lg px-2.5 py-1.5 focus:outline-none">
+                <option value="24">Last 24h</option><option value="72">Last 3 days</option><option value="168">Last 7 days</option>
+              </select>
+            </div>
+            <div id="jobsChart"></div>
+          </div>
+          <div class="panel p-5">
+            <h2 class="font-semibold text-sm mb-3">Recent activity</h2>
+            <div id="activityFeed" class="space-y-2.5 max-h-56 overflow-y-auto scroll-thin"></div>
+          </div>
+        </div>
+        <div class="grid lg:grid-cols-3 gap-5">
+          <div class="panel p-5">
+            <h2 class="font-semibold text-sm mb-3">Data delivered per hour</h2>
+            <div id="bytesChart"></div>
+          </div>
+          <div class="panel p-5">
+            <h2 class="font-semibold text-sm mb-4">Job types</h2>
+            <div id="modeBars" class="space-y-3"></div>
+          </div>
+          <div class="panel p-5 text-sm">
+            <h2 class="font-semibold mb-3">Server</h2>
+            <dl id="configList" class="space-y-1.5 text-smoke"></dl>
+            <div class="flex gap-2 mt-4">
+              <a href="/api/admin/export/jobs.csv" class="bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] text-xs font-semibold rounded-lg px-3 py-2 transition-colors">Jobs CSV</a>
+              <a href="/api/admin/export/deliveries.csv" class="bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] text-xs font-semibold rounded-lg px-3 py-2 transition-colors">Deliveries CSV</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ JOBS ══ -->
+      <section id="tab-jobs" class="tabpane hidden space-y-4">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-smoke" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="jobSearch" type="text" placeholder="Search title, URL, IP…"
+                   class="bg-surface border border-hairline text-sm rounded-xl pl-9 pr-3 py-2.5 w-60 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          </div>
+          <select id="jobStatusFilter" class="bg-surface border border-hairline text-sm rounded-xl px-3 py-2.5 focus:outline-none">
+            <option value="">All statuses</option>
+            <option>done</option><option>downloading</option><option>processing</option>
+            <option>queued</option><option>error</option><option>cancelled</option>
+          </select>
+          <select id="jobPlatformFilter" class="bg-surface border border-hairline text-sm rounded-xl px-3 py-2.5 focus:outline-none">
+            <option value="">All platforms</option>
+            <option>tiktok</option><option>instagram</option><option>pinterest</option>
+            <option>youtube</option><option>twitter</option><option>reddit</option>
+            <option>facebook</option><option>snapchat</option><option>upload</option>
+          </select>
+          <span id="jobCount" class="text-smoke text-xs ml-auto"></span>
+          <button id="clearJobsBtn2" class="bg-amber-500/90 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl px-3.5 py-2.5 transition-colors">Clear all jobs</button>
+        </div>
+        <div class="panel overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="text-left text-[11px] text-smoke uppercase tracking-wider border-b border-hairline">
+                <th class="px-4 py-3 font-semibold">When</th><th class="px-2 py-3 font-semibold">Platform</th>
+                <th class="px-2 py-3 font-semibold">Mode</th><th class="px-2 py-3 font-semibold">Status</th>
+                <th class="px-2 py-3 font-semibold">IP</th><th class="px-2 py-3 font-semibold text-right">Size</th>
+                <th class="px-4 py-3 font-semibold text-right">Actions</th></tr></thead>
+              <tbody id="jobsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ HEALTH ══ -->
+      <section id="tab-health" class="tabpane hidden space-y-5">
+        <div class="panel p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="font-semibold">Extractor self-test</h2>
+              <p class="text-smoke text-xs mt-1" id="ytdlpInfo"></p>
+            </div>
+            <button id="selftestBtn" class="grad-btn text-white text-sm font-semibold rounded-xl px-5 py-2.5">Run self-test</button>
+          </div>
+          <div id="selftestRows" class="mt-4 space-y-2"></div>
+        </div>
+        <div class="panel p-5">
+          <h2 class="font-semibold mb-1">Success rate by platform <span class="text-smoke text-xs font-normal">(7 days, excludes uploads)</span></h2>
+          <div id="healthRows" class="mt-4 space-y-4"></div>
+        </div>
+      </section>
+
+      <!-- ══ ABUSE ══ -->
+      <section id="tab-abuse" class="tabpane hidden space-y-5">
+        <div class="grid lg:grid-cols-2 gap-5 items-start">
+          <div class="panel p-5">
+            <h2 class="font-semibold mb-4">Top consumers <span class="text-smoke text-xs font-normal">(7 days)</span></h2>
+            <div id="consumersRows" class="space-y-2.5"></div>
+          </div>
+          <div class="panel p-5">
+            <h2 class="font-semibold mb-4">Ban an IP</h2>
+            <div class="flex flex-wrap gap-2">
+              <input id="banIp" placeholder="1.2.3.4" class="bg-mist rounded-xl px-3.5 py-2.5 text-sm flex-1 min-w-32 focus:outline-none focus:ring-2 focus:ring-red-400" />
+              <select id="banHours" class="bg-mist text-sm rounded-xl px-2.5 py-2.5 focus:outline-none">
+                <option value="1">1 hour</option><option value="24" selected>24 hours</option>
+                <option value="168">7 days</option><option value="">Permanent</option>
+              </select>
+              <button id="banBtn" class="bg-red-500/90 hover:bg-red-500 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors">Ban</button>
+            </div>
+            <input id="banReason" placeholder="Reason (optional)" class="mt-2 w-full bg-mist rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+            <h3 class="font-semibold text-sm mt-5 mb-2.5">Active bans</h3>
+            <div id="bansRows" class="space-y-2"></div>
+          </div>
+        </div>
+        <div class="panel p-5">
+          <h2 class="font-semibold mb-4">Recent failures</h2>
+          <div id="failedRows" class="space-y-2 text-sm"></div>
+        </div>
+      </section>
+
+      <!-- ══ SETTINGS ══ -->
+      <section id="tab-settings" class="tabpane hidden space-y-5">
+        <div class="panel p-6">
+          <h2 class="font-semibold">Live configuration</h2>
+          <p class="text-smoke text-xs mt-1 mb-6">Changes apply immediately (concurrency needs a restart). Rate limits: N/minute · N/hour · N/day.</p>
+          <div id="settingsGrid" class="grid sm:grid-cols-2 gap-x-8 gap-y-5"></div>
+          <div class="flex flex-wrap items-center gap-3 mt-7">
+            <button id="saveSettingsBtn" class="grad-btn text-white text-sm font-semibold rounded-xl px-6 py-2.5">Save changes</button>
+            <button id="resetSettingsBtn" class="bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors">Reset to defaults</button>
+            <span id="settingsMsg" class="text-xs text-emerald-600 dark:text-emerald-300 font-medium"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══ SECURITY ══ -->
+      <section id="tab-security" class="tabpane hidden space-y-5">
+        <div class="grid lg:grid-cols-2 gap-5 items-start">
+          <div class="panel p-5">
+            <h2 class="font-semibold mb-4">Admin accounts</h2>
+            <div id="adminsRows" class="space-y-2.5"></div>
+            <div class="border-t border-hairline mt-4 pt-4 flex flex-wrap gap-2">
+              <input id="newAdminUser" placeholder="username" class="bg-mist rounded-xl px-3.5 py-2.5 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <input id="newAdminPass" type="password" placeholder="password (8+ chars)" class="bg-mist rounded-xl px-3.5 py-2.5 text-sm flex-1 min-w-40 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <button id="addAdminBtn" class="grad-btn text-white text-sm font-semibold rounded-xl px-4 py-2.5">Add</button>
+            </div>
+          </div>
+          <div class="space-y-5">
+            <div class="panel p-5">
+              <h2 class="font-semibold mb-2">Two-factor authentication</h2>
+              <p class="text-smoke text-xs mb-3" id="totpState"></p>
+              <div id="totpSetupBox" class="hidden">
+                <p class="text-xs text-smoke mb-1">Add this secret to your authenticator app:</p>
+                <p id="totpSecret" class="font-mono text-sm bg-mist rounded-lg px-3 py-2 break-all"></p>
+                <div class="flex gap-2 mt-3">
+                  <input id="totpCode" placeholder="6-digit code" class="bg-mist rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                  <button id="totpConfirmBtn" class="grad-btn text-white text-sm font-semibold rounded-lg px-4 py-2">Confirm</button>
+                  <button id="totpCancelBtn" class="bg-mist text-sm rounded-lg px-3 py-2">Cancel</button>
+                </div>
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button id="totpEnableBtn" class="grad-btn text-white text-sm font-semibold rounded-lg px-4 py-2">Enable 2FA</button>
+                <button id="totpDisableBtn" class="hidden bg-red-500/90 hover:bg-red-500 text-white text-sm font-semibold rounded-lg px-4 py-2 transition-colors">Disable 2FA</button>
+              </div>
+            </div>
+            <div class="panel p-5">
+              <h2 class="font-semibold mb-4">Active sessions</h2>
+              <div id="sessionsRows" class="space-y-2.5"></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel p-5">
+          <h2 class="font-semibold mb-4">Audit log</h2>
+          <div id="auditRows" class="space-y-1.5 text-sm max-h-96 overflow-y-auto scroll-thin"></div>
+        </div>
+      </section>
+
+      <!-- ══ MAINTENANCE ══ -->
+      <section id="tab-maintenance" class="tabpane hidden space-y-5">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="panel panel-hover p-5 flex flex-col">
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold text-sm">Disk usage</h2>
+              <span id="diskRing" class="shrink-0"></span>
+            </div>
+            <p id="diskLabel" class="text-[13px] text-smoke mt-2 mb-1">—</p>
+            <p class="text-[11px] text-smoke mb-4">Staged uploads, outputs and logs.</p>
+            <button id="clearDiskBtn" class="mt-auto bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors inline-flex items-center justify-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Clear disk
+            </button>
+          </div>
+          <div class="panel panel-hover p-5 flex flex-col">
+            <h2 class="font-semibold text-sm">Jobs list</h2>
+            <p class="text-[13px] text-smoke mt-2 mb-1" id="jobsTotalLabel">—</p>
+            <p class="text-[11px] text-smoke mb-4">Remove every job record and its files.</p>
+            <button id="clearJobsBtn" class="mt-auto bg-amber-500/90 hover:bg-amber-500 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors inline-flex items-center justify-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+              Clear all jobs
+            </button>
+          </div>
+          <div class="panel panel-hover p-5 flex flex-col">
+            <h2 class="font-semibold text-sm">Extractor self-test</h2>
+            <p class="text-[13px] text-smoke mt-2 mb-1">Probe the platforms.</p>
+            <p class="text-[11px] text-smoke mb-4">Results land in Platform health.</p>
+            <button id="quickSelftestBtn" class="mt-auto bg-mist hover:bg-black/[.07] dark:hover:bg-white/[.09] text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors inline-flex items-center justify-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              Run self-test
+            </button>
+          </div>
+        </div>
+
+        <div class="panel p-5 border-red-400/30">
+          <div class="flex items-center gap-2">
+            <svg class="text-red-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <h2 class="font-semibold text-sm text-red-600 dark:text-red-300">Danger zone</h2>
+          </div>
+          <p class="text-smoke text-xs mt-1.5">Wipes jobs, deliveries, audit log, bans, health checks, lifetime stats and all staged files. Admins, sessions and settings survive. Cannot be undone.</p>
+          <button id="resetDataBtn" class="mt-4 bg-red-500/90 hover:bg-red-500 text-white text-sm font-semibold rounded-xl px-5 py-2.5 transition-colors inline-flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset all data
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast" class="hidden fixed bottom-5 left-1/2 rounded-xl border px-4 py-2.5 text-sm shadow-lg z-50"></div>
+
+<!-- ── Job report modal ── -->
+<div id="reportModal" class="hidden fixed inset-0 z-50 grid place-items-center p-5" style="background:rgba(0,0,0,.45); backdrop-filter:blur(3px);">
+  <div class="panel w-full max-w-2xl max-h-[85vh] flex flex-col fade-in">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-hairline">
+      <div class="flex items-center gap-2">
+        <svg class="text-red-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <h3 class="font-semibold text-sm">Job diagnostic report</h3>
+      </div>
+      <button id="reportCloseBtn" class="text-smoke hover:text-ink text-lg leading-none px-2" aria-label="Close">×</button>
+    </div>
+    <div class="p-5 overflow-y-auto scroll-thin">
+      <pre id="reportBody" class="text-[11.5px] leading-relaxed bg-mist rounded-xl p-4 whitespace-pre-wrap break-all"></pre>
+    </div>
+    <div class="px-5 py-3.5 border-t border-hairline flex justify-end gap-2">
+      <button id="reportCopyBtn" class="grad-btn text-white text-xs font-semibold rounded-lg px-4 py-2 inline-flex items-center gap-1.5">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span id="reportCopyLabel">Copy report</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let TOKEN = null;
+try { TOKEN = localStorage.getItem("nyx-admin-token"); } catch (e) {}
+let timer = null, tickTimer = null, currentTab = "overview";
+let LAST_JOBS = [], LAST_STATS = null, lastRefresh = Date.now();
+const TITLES = { overview:"Overview", jobs:"Jobs", health:"Platform health", abuse:"Abuse",
+                 settings:"Settings", security:"Security", maintenance:"Maintenance" };
+
+/* ---------- helpers ---------- */
+const fmtBytes = (n) => { if (!n) return "0 B"; const u=["B","KB","MB","GB","TB"]; let i=0;
+  while (n>=1024 && i<u.length-1){n/=1024;i++;} return `${n>=100?Math.round(n):n.toFixed(1)} ${u[i]}`; };
+const fmtUp = (s) => { s=Math.max(0,Math.floor(s)); const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);
+  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m ${s%60}s`; };
+const timeAgo = (ts) => { const s=Math.floor(Date.now()/1000-ts); if(s<60)return `${s}s ago`;
+  if(s<3600)return `${Math.floor(s/60)}m ago`; if(s<86400)return `${Math.floor(s/3600)}h ago`;
+  return new Date(ts*1000).toLocaleDateString(); };
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function toast(msg, kind="error") {
+  const st = { error:"bg-red-50 border-red-200 text-red-700 dark:bg-red-500/15 dark:border-red-400/30 dark:text-red-300",
+    success:"bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/15 dark:border-emerald-400/30 dark:text-emerald-300",
+    warn:"bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/15 dark:border-amber-400/30 dark:text-amber-300" }[kind];
+  const t=$("toast");
+  t.className=`toast-anim fixed bottom-5 left-1/2 rounded-xl border px-4 py-2.5 text-sm shadow-lg z-50 ${st}`;
+  t.textContent=msg; t.classList.remove("hidden");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.add("hidden"),4500);
+}
+
+async function api(path, opts={}) {
+  const res = await fetch(path, { ...opts, headers: {
+    ...(opts.body?{"Content-Type":"application/json"}:{}),
+    ...(TOKEN?{"X-Admin-Token":TOKEN}:{}), ...(opts.headers||{}) }});
+  if (res.status === 401) { showLogin(); throw new Error("unauthorized"); }
+  if (res.status === 429) throw new Error("Rate-limited — slow down.");
+  if (!res.ok) { let d=null; try{d=await res.json();}catch(e){}
+    throw new Error((d&&d.detail)||`HTTP ${res.status}`); }
+  return res.json();
+}
+
+/* ---------- auth flow ---------- */
+function showLogin(){ stopPolling(); $("dashView").classList.add("hidden"); $("loginView").classList.remove("hidden"); }
+function showDash(){ $("loginView").classList.add("hidden"); $("dashView").classList.remove("hidden");
+  switchTab(currentTab, true); startTicker(); beginPolling(); }
+function stopPolling(){ if(timer){clearInterval(timer);timer=null;} if(tickTimer){clearInterval(tickTimer);tickTimer=null;} }
+
+$("loginBtn").addEventListener("click", async () => {
+  const err=(m)=>{ $("loginErr").textContent=m; $("loginErr").classList.remove("hidden"); };
+  try {
+    const r = await fetch("/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({username:$("userInput").value,password:$("pwInput").value,code:$("codeInput").value||undefined})});
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok) return err(d.detail||"Login failed");
+    if (d.totp_required) { $("codeInput").classList.remove("hidden"); $("codeInput").focus(); return err("Enter your 2FA code, then sign in again."); }
+    TOKEN=d.token; try{localStorage.setItem("nyx-admin-token",TOKEN);}catch(e){}
+    $("loginErr").classList.add("hidden"); showDash();
+  } catch(e){ err("Login failed"); }
+});
+$("pwInput").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginBtn").click(); });
+$("codeInput").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginBtn").click(); });
+async function doLogout(){ try{ await api("/api/admin/logout",{method:"POST"});}catch(e){}
+  TOKEN=null; try{localStorage.removeItem("nyx-admin-token");}catch(e){} showLogin(); }
+$("logoutBtn").addEventListener("click", doLogout);
+$("logoutBtnMobile").addEventListener("click", doLogout);
+
+/* ---------- tabs ---------- */
+function switchTab(name, force=false){
+  if(!force && name===currentTab) return;
+  currentTab=name;
+  document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active", b.dataset.tab===name));
+  document.querySelectorAll(".tabpane").forEach(p=>{
+    const on = p.id===`tab-${name}`;
+    p.classList.toggle("hidden", !on);
+    if(on){ p.classList.remove("fade-in"); void p.offsetWidth; p.classList.add("fade-in"); }
+  });
+  $("pageTitle").textContent=TITLES[name]||name;
+  refresh();
+}
+document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
+$("refreshBtn").addEventListener("click", ()=>{
+  $("refreshIcon").style.transition="transform .5s ease"; $("refreshIcon").style.transform="rotate(360deg)";
+  setTimeout(()=>$("refreshIcon").style.transform="",550);
+  refresh();
+});
+
+function startTicker(){
+  if(tickTimer) clearInterval(tickTimer);
+  tickTimer=setInterval(()=>{ $("agoLabel").textContent=Math.max(0,Math.floor((Date.now()-lastRefresh)/1000))+"s"; },1000);
+}
+
+/* ---------- animated counter ---------- */
+function countUp(el, target, fmt){
+  const from = parseFloat(el.dataset.v||"0"); const to=parseFloat(target)||0;
+  el.dataset.v=to;
+  if(!isFinite(from)||from===to){ el.textContent=fmt(to); return; }
+  const t0=performance.now(), dur=550;
+  (function step(t){
+    const k=Math.min(1,(t-t0)/dur); const e=1-Math.pow(1-k,3);
+    el.textContent=fmt(from+(to-from)*e);
+    if(k<1) requestAnimationFrame(step);
+  })(t0);
+}
+
+/* ---------- sparkline ---------- */
+function sparkline(vals, w=120, h=30){
+  if(!vals.length) return "";
+  const max=Math.max(...vals,1);
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1||1)*w).toFixed(1)},${(h-2-(v/max*(h-4))).toFixed(1)}`).join(" ");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="overflow-visible">
+    <polyline points="${pts}" fill="none" stroke="url(#sg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="var(--g1)"/><stop offset="100%" stop-color="var(--g3)"/></linearGradient></defs>
+  </svg>`;
+}
+
+/* ---------- ring ---------- */
+function ring(pct, size=54, label){
+  const r=(size-8)/2, c=2*Math.PI*r, off=c*(1-Math.min(100,pct)/100);
+  const col=pct>=80?"#ff453a":pct>=55?"#ff9f0a":"url(#rg)";
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="var(--g1)"/><stop offset="100%" stop-color="var(--g3)"/></linearGradient></defs>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="rgba(120,120,128,.18)" stroke-width="5"/>
+    <circle class="ring-fg" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${col}" stroke-width="5"
+      stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${size/2} ${size/2})"/>
+    <text x="50%" y="53%" dominant-baseline="middle" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor">${label}</text>
+  </svg>`;
+}
+
+/* ---------- charts ---------- */
+function barChart(el, points, opts={}) {
+  const W=560,H=150,pad=6;
+  if (!points.length) { el.innerHTML='<p class="text-smoke text-xs py-10 text-center">No data yet.</p>'; return; }
+  const max=Math.max(...points.map(p=>p.v),1);
+  const bw=W/points.length;
+  const bars=points.map((p,i)=>{
+    const h=Math.max(2,p.v/max*(H-32));
+    const title=`${p.label}: ${opts.fmt?opts.fmt(p.v):p.v}`;
+    return `<rect x="${(i*bw+1).toFixed(1)}" y="${(H-h-pad).toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="url(#bg${el.id})" opacity="0.9"><title>${esc(title)}</title></rect>`;
+  }).join("");
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" class="w-full">
+    <defs><linearGradient id="bg${el.id}" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="var(--g1)" stop-opacity=".7"/><stop offset="100%" stop-color="var(--g3)"/></linearGradient></defs>
+    ${bars}
+    <text x="${pad}" y="${H-5}" font-size="9" opacity="0.55" fill="currentColor">${esc(points[0].label)}</text>
+    <text x="${W-pad}" y="${H-5}" text-anchor="end" font-size="9" opacity="0.55" fill="currentColor">${esc(points[points.length-1].label)}</text></svg>`;
+}
+
+function bars(el, dict) {
+  const entries=Object.entries(dict||{}).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ el.innerHTML='<p class="text-smoke text-xs">No data yet.</p>'; return; }
+  const max=entries[0][1];
+  el.innerHTML=entries.map(([k,v])=>`<div>
+    <div class="flex justify-between text-xs mb-1"><span class="font-medium capitalize">${esc(k)}</span><span class="text-smoke">${v}</span></div>
+    <div class="h-1.5 rounded-full bg-mist overflow-hidden"><div class="bar-anim h-full rounded-full" style="width:${Math.max(4,v/max*100)}%; background:linear-gradient(90deg,var(--g1),var(--g3))"></div></div></div>`).join("");
+}
+
+/* ---------- renderers ---------- */
+const STATUS_STYLE = { queued:["bg-amber-500/15 text-amber-600 dark:text-amber-300"],
+  downloading:["bg-blue-500/15 text-blue-600 dark:text-blue-300"],
+  processing:["bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"],
+  done:["bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"],
+  error:["bg-red-500/15 text-red-600 dark:text-red-300"],
+  cancelled:["bg-zinc-500/15 text-zinc-600 dark:text-zinc-300"] };
+
+async function renderStats(s){
+  LAST_STATS=s;
+  const c=s.config;
+  const cards=[
+    ["Total jobs", s.jobs_total, v=>Math.round(v).toLocaleString(), s._spark||[]],
+    ["Completed", s.jobs_done, v=>`${Math.round(v).toLocaleString()}`, []],
+    ["Active now", s.jobs_active, v=>`${Math.round(v)}`, []],
+    ["Delivered", s.bytes_delivered, v=>fmtBytes(v), []],
+    ["Uptime", s.uptime_seconds, v=>fmtUp(v), []],
+    ["Workers", `${s.workers_in_use}/${c.max_concurrent_downloads}`, null, []],
+    ["yt-dlp", c.ytdlp_version, null, []],
+    ["Preview", `${c.preview_height}p · ${c.ffmpeg?"FFmpeg ✔":"FFmpeg ✘"}`, null, []],
+  ];
+  $("statCards").innerHTML=cards.map(([t,v,fmt,spark])=>`<div class="panel panel-hover p-4">
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-xs text-smoke font-medium">${esc(t)}</p>
+      ${spark&&spark.length?sparkline(spark.slice(-16)): ""}
+    </div>
+    <p class="text-xl font-bold mt-1.5 tracking-tight" ${fmt?`data-v="${typeof v==="number"?v:0}" data-cnt="1"`:""}>${fmt?esc(String(v)):esc(String(v))}</p>
+  </div>`).join("");
+  // animate numeric ones
+  document.querySelectorAll("[data-cnt]").forEach((el,i)=>{
+    const fmt=cards[i][2]; const target=parseFloat(el.dataset.v)||0;
+    countUp(el, target, fmt);
+  });
+  bars($("modeBars"), s.by_mode);
+  $("configList").innerHTML=[
+    ["Analyze limit", c.analyze_rate_limit], ["Download limit", c.download_rate_limit],
+    ["Preview limit", c.preview_rate_limit], ["Recode limit", c.recode_rate_limit],
+    ["Upload limit", c.upload_rate_limit], ["Job TTL", `${Math.round(c.job_ttl_seconds/60)} min`],
+    ["Max download", `${c.max_download_mb} MB`], ["Max upload", `${c.max_upload_mb} MB`],
+    ["Cookies file", c.cookies_configured?"✔ configured":"— not set"],
+  ].map(([k,v])=>`<div class="flex justify-between"><dt>${esc(k)}</dt><dd class="text-ink font-semibold">${esc(v)}</dd></div>`).join("");
+
+  // disk ring + label (maintenance tab)
+  const cap=(s.disk_cap_gb||0)*1024**3;
+  const pct=cap?s.disk_bytes/cap*100:0;
+  $("diskRing").innerHTML=ring(cap?pct:(s.disk_bytes>0?8:0), 56, cap?`${Math.round(pct)}%`:"—");
+  $("diskLabel").textContent=cap
+    ? `${fmtBytes(s.disk_bytes)} of ${s.disk_cap_gb} GB (${pct.toFixed(1)}%) · ${s.disk_files} files`
+    : `${fmtBytes(s.disk_bytes)} used · ${s.disk_files} files · no cap set`;
+  $("jobsTotalLabel").textContent=`${s.jobs_total} total · ${s.jobs_active} active · ${s.jobs_failed} failed`;
+}
+
+async function renderSeries(){
+  const hours=parseInt($("seriesRange").value);
+  const d=await api(`/api/admin/series?hours=${hours}`);
+  const now=Math.floor(Date.now()/1000/3600)*3600;
+  const step=hours<=24?3600:3600*Math.ceil(hours/24);
+  const jmap={}, bmap={};
+  d.jobs.forEach(r=>jmap[r.hr*3600]=r);
+  d.bytes.forEach(r=>bmap[r.hr*3600]=r);
+  const jpts=[], bpts=[];
+  const n=Math.ceil(hours*3600/step);
+  for(let i=n-1;i>=0;i--){
+    const hr=now-i*step;
+    const label=hours<=24? new Date(hr*1000).getHours()+":00" : new Date(hr*1000).toLocaleDateString(undefined,{month:"short",day:"numeric"});
+    const jr=jmap[hr]; jpts.push({label,v:(jr?jr.total:0)});
+    bpts.push({label,v:(bmap[hr]?bmap[hr].bytes:0)});
+  }
+  $("jobsChartSub").textContent=`· ${jpts.reduce((a,p)=>a+p.v,0)} total`;
+  barChart($("jobsChart"), jpts);
+  barChart($("bytesChart"), bpts, {fmt:fmtBytes});
+  if(LAST_STATS) LAST_STATS._spark=jpts.map(p=>p.v);
+}
+
+async function renderActivity(){
+  try{
+    const a=await api("/api/admin/audit");
+    const ICON={login:"→",logout:"←",ban:"⛔",unban:"✓",delete_job:"🗑",purge_all:"🗑",jobs_cleared:"🗑",
+      disk_cleared:"💽",data_reset:"♻",settings:"⚙",settings_reset:"⚙",admin_created:"＋",admin_deleted:"－",
+      "2fa_enabled":"🔐","2fa_disabled":"🔓",cancel:"✕",retry:"↻",selftest:"⚡",revoke_session:"✕"};
+    $("activityFeed").innerHTML=a.slice(0,12).map(x=>`
+      <div class="flex items-baseline gap-2.5 text-xs">
+        <span class="w-5 text-center shrink-0">${ICON[x.action]||"•"}</span>
+        <span class="font-semibold shrink-0">${esc(x.action)}</span>
+        <span class="text-smoke truncate flex-1" title="${esc(x.detail)}">${esc(x.detail||"")}</span>
+        <span class="text-smoke shrink-0">${timeAgo(x.ts)}</span>
+      </div>`).join("") || '<p class="text-smoke text-xs">No activity yet.</p>';
+  }catch(e){}
+}
+
+async function renderJobs(){
+  const st=$("jobStatusFilter").value, pl=$("jobPlatformFilter").value;
+  const jobs=await api(`/api/admin/jobs?limit=300${st?`&status=${st}`:""}${pl?`&platform=${pl}`:""}`);
+  LAST_JOBS=jobs;
+  drawJobs();
+}
+function drawJobs(){
+  const q=($("jobSearch").value||"").toLowerCase().trim();
+  const jobs=LAST_JOBS.filter(j=>{
+    if(!q) return true;
+    return [j.title,j.url,j.client_ip,j.mode,j.platform,j.filename].some(v=>String(v||"").toLowerCase().includes(q));
+  });
+  $("jobCount").textContent=`${jobs.length}${jobs.length!==LAST_JOBS.length?` / ${LAST_JOBS.length}`:""} jobs`;
+  $("jobsBody").innerHTML=jobs.length?jobs.map(j=>{
+    const pill=STATUS_STYLE[j.status]||"bg-mist";
+    return `<tr class="border-b border-hairline last:border-0 hover:bg-mist/40 transition-colors">
+    <td class="px-4 py-3 whitespace-nowrap text-xs text-smoke">${timeAgo(j.created_at)}
+      <div class="text-ink/85 text-[13px] max-w-52 truncate font-medium" title="${esc(j.title||j.url)}">${esc(j.title||j.url||"—")}</div></td>
+    <td class="px-2 py-3 capitalize text-sm">${esc(j.platform||"—")}</td>
+    <td class="px-2 py-3 text-sm">${esc(j.mode)}${j.preset?` · ${esc(j.preset)}`:""}${j.target_mb?` · ${j.target_mb}MB`:""}</td>
+    <td class="px-2 py-3"><span class="status-pill ${pill}"><span class="dot"></span>${esc(j.status)}${j.status==="downloading"?` ${Math.round(j.progress||0)}%`:""}</span>
+      ${j.error?`<div class="text-red-500 text-[11px] max-w-48 truncate mt-1.5" title="${esc(j.error)}">${esc(j.error)}</div>`:""}</td>
+    <td class="px-2 py-3 text-xs text-smoke font-mono">${esc(j.client_ip||"—")}</td>
+    <td class="px-2 py-3 text-right text-xs text-smoke whitespace-nowrap">${j.filesize?fmtBytes(j.filesize):"—"}</td>
+    <td class="px-4 py-3 text-right whitespace-nowrap text-xs font-medium space-x-2.5">
+      ${["queued","downloading","processing"].includes(j.status)?`<button data-cancel="${j.id}" class="text-amber-600 dark:text-amber-300 hover:underline">cancel</button>`:""}
+      ${["error","cancelled"].includes(j.status)&&["video","audio","image","preview"].includes(j.mode)?`<button data-retry="${j.id}" class="text-blue-600 dark:text-blue-300 hover:underline">retry</button>`:""}
+      ${(j.error||j.error_log)?`<button data-report="${j.id}" class="text-indigo-600 dark:text-indigo-300 hover:underline">report</button>`:""}
+      <button data-del="${j.id}" class="text-red-500 hover:underline">delete</button></td></tr>`;}).join("")
+    :`<tr><td colspan="7" class="px-4 py-10 text-center text-smoke text-sm">No jobs found.</td></tr>`;
+  document.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=async()=>{ await api(`/api/admin/jobs/${b.dataset.cancel}/cancel`,{method:"POST"}); toast("Cancel requested","success"); refresh(); });
+  document.querySelectorAll("[data-retry]").forEach(b=>b.onclick=async()=>{ await api(`/api/admin/jobs/${b.dataset.retry}/retry`,{method:"POST"}); toast("Job restarted","success"); refresh(); });
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{ if(!confirm("Delete this job and its file?"))return;
+    await api(`/api/admin/jobs/${b.dataset.del}`,{method:"DELETE"}); refresh(); });
+  document.querySelectorAll("[data-report]").forEach(b=>b.onclick=()=>openReport(b.dataset.report));
+}
+$("jobSearch").addEventListener("input",()=>drawJobs());
+$("jobStatusFilter").addEventListener("change",()=>renderJobs().catch(()=>{}));
+$("jobPlatformFilter").addEventListener("change",()=>renderJobs().catch(()=>{}));
+
+/* ---------- job report modal ---------- */
+function buildJobReport(j){
+  const L=[];
+  L.push("NyxDownloader — job diagnostic report (admin console)");
+  L.push("time: "+new Date((j.created_at||0)*1000).toISOString());
+  L.push("job id: "+(j.id||"?"));
+  L.push("platform: "+(j.platform||"?")+" | mode: "+(j.mode||"?")
+    +(j.preset?" | preset: "+j.preset:"")
+    +(j.target_mb?" | target: "+j.target_mb+"MB":"")
+    +(j.height?" | height: "+j.height+"p":"")
+    +(j.audio_format?" | audio: "+j.audio_format:""));
+  L.push("title: "+(j.title||"—"));
+  L.push("source: "+(j.url||"—"));
+  L.push("client ip: "+(j.client_ip||"—"));
+  L.push("status: "+(j.status||"?")+(j.filesize?" | output: "+j.filename+" ("+fmtBytes(j.filesize)+")":""));
+  L.push("");
+  L.push("error: "+(j.error||"(none)"));
+  L.push("");
+  L.push("── ffmpeg log tail ──");
+  L.push(j.error_log||"(no ffmpeg log captured)");
+  return L.join("\n");
+}
+function openReport(jobId){
+  const j=LAST_JOBS.find(x=>x.id===jobId);
+  if(!j) return;
+  $("reportBody").textContent=buildJobReport(j);
+  $("reportModal").classList.remove("hidden");
+}
+$("reportCloseBtn").addEventListener("click",()=>$("reportModal").classList.add("hidden"));
+$("reportModal").addEventListener("click",(e)=>{ if(e.target===$("reportModal")) $("reportModal").classList.add("hidden"); });
+$("reportCopyBtn").addEventListener("click", async ()=>{
+  const text=$("reportBody").textContent;
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){ const ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+  $("reportCopyLabel").textContent="Copied ✔";
+  setTimeout(()=>$("reportCopyLabel").textContent="Copy report",2000);
+});
+
+async function renderHealth(){
+  const h=await api("/api/admin/health");
+  const age=h.ytdlp_age_days;
+  $("ytdlpInfo").innerHTML=`yt-dlp <b>${esc(h.ytdlp_version)}</b> — ${age==null?"release age unknown":
+    age>60?`<span class="text-red-500 font-semibold">${age} days since this release — check for a newer one: <code class="bg-mist px-1 rounded">pip install -U yt-dlp</code></span>`:
+    age>21?`<span class="text-amber-600 dark:text-amber-300">${age} days since this release — worth checking <code class="bg-mist px-1 rounded">pip install -U yt-dlp</code></span>`:
+    `${age} days old ✔ up to date`}. <span class="text-smoke">Keeping yt-dlp fresh is the #1 reliability fix.</span>`;
+  $("healthRows").innerHTML=h.platforms.length?h.platforms.map(p=>{
+    const rate=p.total?Math.round(p.done/p.total*100):0;
+    const col=rate>=85?"bg-emerald-500":rate>=50?"bg-amber-500":"bg-red-500";
+    return `<div>
+      <div class="flex justify-between text-sm mb-1"><span class="font-medium capitalize">${esc(p.platform)}</span>
+        <span class="text-smoke">${p.done}/${p.total} · <b class="${rate>=85?"text-emerald-600 dark:text-emerald-300":rate>=50?"text-amber-600 dark:text-amber-300":"text-red-500"}">${rate}%</b></span></div>
+      <div class="h-1.5 rounded-full bg-mist overflow-hidden"><div class="bar-anim ${col} h-full rounded-full" style="width:${Math.max(3,rate)}%"></div></div>
+      ${p.top_errors.length?`<div class="mt-1.5 space-y-0.5">${p.top_errors.map(e=>`<p class="text-[11px] text-smoke truncate" title="${esc(e.error)}">↳ ${esc(e.error)} (${e.n})</p>`).join("")}</div>`:""}
+    </div>`;}).join(""):'<p class="text-smoke text-sm">No download history yet.</p>';
+  $("selftestRows").innerHTML=h.selftest.length?h.selftest.map(t=>`
+    <div class="flex items-center gap-2.5 text-sm">
+      <span class="w-2 h-2 rounded-full shrink-0 ${t.ok?"bg-emerald-500":"bg-red-500"}" style="box-shadow:0 0 8px currentColor"></span>
+      <span class="font-medium capitalize w-36 shrink-0">${esc(t.platform)}</span>
+      <span class="text-smoke text-xs flex-1 truncate" title="${esc(t.note)}">${esc(t.note)}</span>
+      <span class="text-smoke text-[11px] shrink-0">${timeAgo(t.ts)}</span></div>`).join("")
+    :'<p class="text-smoke text-xs">No self-test results yet — run one.</p>';
+}
+$("selftestBtn").addEventListener("click", async ()=>{
+  $("selftestBtn").disabled=true; $("selftestBtn").textContent="Testing…";
+  try{ await api("/api/admin/selftest",{method:"POST"}); toast("Self-test started — results in ~20s","success");
+    setTimeout(()=>renderHealth().catch(()=>{}),20000); }
+  catch(e){ toast(e.message); }
+  finally{ setTimeout(()=>{ $("selftestBtn").disabled=false; $("selftestBtn").textContent="Run self-test"; },2000); }
+});
+
+async function renderAbuse(){
+  const a=await api("/api/admin/abuse");
+  $("consumersRows").innerHTML=a.top_consumers.length?a.top_consumers.map(c=>`
+    <div class="flex items-center gap-2.5 text-sm">
+      <span class="font-mono text-xs flex-1 truncate">${esc(c.ip)}</span>
+      <span class="text-smoke text-xs shrink-0">${c.jobs} jobs · ${fmtBytes(c.bytes)}</span>
+      <button data-banip="${esc(c.ip)}" class="text-red-500 text-xs hover:underline shrink-0">ban</button></div>`).join("")
+    :'<p class="text-smoke text-xs">No traffic yet.</p>';
+  document.querySelectorAll("[data-banip]").forEach(b=>b.onclick=()=>{ $("banIp").value=b.dataset.banip; $("banIp").focus(); switchTab("abuse"); });
+  $("bansRows").innerHTML=a.bans.length?a.bans.map(b=>`
+    <div class="flex items-center gap-2 text-sm">
+      <span class="font-mono text-xs flex-1 truncate">${esc(b.ip)}</span>
+      <span class="text-smoke text-[11px] shrink-0">${b.expires_at?"until "+new Date(b.expires_at*1000).toLocaleString():"permanent"}${b.reason?` · ${esc(b.reason)}`:""}</span>
+      <button data-unban="${esc(b.ip)}" class="text-blue-500 text-xs hover:underline shrink-0">unban</button></div>`).join("")
+    :'<p class="text-smoke text-xs">No active bans.</p>';
+  document.querySelectorAll("[data-unban]").forEach(b=>b.onclick=async()=>{
+    await api(`/api/admin/bans/${encodeURIComponent(b.dataset.unban)}`,{method:"DELETE"}); toast("Unbanned","success"); renderAbuse(); });
+  $("failedRows").innerHTML=a.failed.length?a.failed.map(f=>`
+    <div class="flex gap-2.5 items-baseline">
+      <span class="text-[11px] text-smoke w-16 shrink-0">${timeAgo(f.created_at)}</span>
+      <span class="text-[11px] capitalize text-smoke w-20 shrink-0">${esc(f.platform||"")}</span>
+      <span class="font-mono text-[11px] text-smoke w-28 shrink-0 truncate">${esc(f.client_ip||"")}</span>
+      <span class="text-xs text-red-500/90 flex-1 truncate" title="${esc(f.error)}">${esc(f.error||"")}</span></div>`).join("")
+    :'<p class="text-smoke text-xs">No failures recorded. 🎉</p>';
+}
+$("banBtn").addEventListener("click", async ()=>{
+  const ip=$("banIp").value.trim();
+  if(!ip) return toast("Enter an IP first","warn");
+  const h=$("banHours").value;
+  await api("/api/admin/bans",{method:"POST",body:JSON.stringify({ip,reason:$("banReason").value,hours:h===""?null:parseFloat(h)})});
+  $("banIp").value=""; $("banReason").value=""; toast("IP banned","success"); renderAbuse();
+});
+
+let SETTINGS_DEFAULTS=null;
+async function renderSettings(){
+  const d=await api("/api/admin/settings");
+  SETTINGS_DEFAULTS=d.defaults;
+  const LABELS={ analyze_rate_limit:["Analyze rate limit","e.g. 15/minute"], download_rate_limit:["Download rate limit","e.g. 8/hour"],
+    preview_rate_limit:["Preview rate limit","e.g. 30/hour"], recode_rate_limit:["Recode rate limit","e.g. 12/hour"],
+    upload_rate_limit:["Studio upload limit","e.g. 10/hour"], job_ttl_seconds:["Job TTL (seconds)","files kept this long"],
+    max_download_mb:["Max download size (MB)","per file"], max_upload_mb:["Max Studio upload (MB)","per file"],
+    preview_height:["Preview height (px)","e.g. 480"], disk_cap_gb:["Disk cap (GB)","oldest files evicted past 80%"] };
+  $("settingsGrid").innerHTML=Object.keys(LABELS).map(k=>`
+    <label class="block">
+      <span class="text-xs font-semibold text-smoke">${esc(LABELS[k][0])}</span>
+      <input data-key="${k}" value="${esc(d.settings[k]??d.defaults[k])}" placeholder="${esc(LABELS[k][1])}"
+        class="mt-1.5 w-full bg-mist rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+    </label>`).join("");
+}
+$("saveSettingsBtn").addEventListener("click", async ()=>{
+  const settings={};
+  document.querySelectorAll("#settingsGrid input[data-key]").forEach(i=>settings[i.dataset.key]=i.value);
+  await api("/api/admin/settings",{method:"PUT",body:JSON.stringify({settings})});
+  $("settingsMsg").textContent="Saved ✔"; setTimeout(()=>$("settingsMsg").textContent="",2500);
+  toast("Settings saved — applied live","success");
+});
+$("resetSettingsBtn").addEventListener("click", async ()=>{
+  if(!confirm("Reset all settings to defaults?\n\nEvery stored override is deleted — built-in defaults (and env vars) apply again."))return;
+  try{
+    await api("/api/admin/settings/reset",{method:"POST"});
+    await renderSettings();
+    toast("Settings reset to defaults","success");
+  }catch(e){ toast(e.message); }
+});
+
+async function renderSecurity(){
+  const [admins,sessions,audit,me]=await Promise.all([
+    api("/api/admin/admins"), api("/api/admin/sessions"), api("/api/admin/audit"), api("/api/admin/me")]);
+  $("meName").textContent=me.username;
+  $("meAvatar").textContent=(me.username||"A")[0];
+  $("meSub").textContent=me.totp_enabled?"2FA enabled":"session active";
+  $("adminsRows").innerHTML=admins.map(a=>`
+    <div class="flex items-center gap-2.5 text-sm">
+      <span class="w-7 h-7 rounded-full bg-mist grid place-items-center text-[11px] font-bold uppercase shrink-0">${esc(a.username[0])}</span>
+      <span class="font-medium flex-1 truncate">${esc(a.username)} ${a.totp_enabled?'<span class="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 px-1.5 py-0.5 rounded font-semibold align-middle">2FA</span>':""}</span>
+      <span class="text-smoke text-[11px] shrink-0">since ${new Date(a.created_at*1000).toLocaleDateString()}</span>
+      ${a.username!==me.username?`<button data-deladmin="${esc(a.username)}" class="text-red-500 text-xs hover:underline shrink-0">remove</button>`:""}</div>`).join("");
+  document.querySelectorAll("[data-deladmin]").forEach(b=>b.onclick=async()=>{
+    if(!confirm(`Remove admin "${b.dataset.deladmin}"?`))return;
+    await api(`/api/admin/admins/${encodeURIComponent(b.dataset.deladmin)}`,{method:"DELETE"}); renderSecurity(); });
+  $("sessionsRows").innerHTML=sessions.length?sessions.map(s=>`
+    <div class="flex items-center gap-2.5 text-sm">
+      <span class="pulse-dot shrink-0"></span>
+      <span class="font-medium flex-1 truncate">${esc(s.username)}</span>
+      <span class="text-smoke text-[11px] shrink-0">expires in ${fmtUp(s.expires_at-Date.now()/1000)}</span>
+      <button data-rev="${esc(s.token)}" class="text-red-500 text-xs hover:underline shrink-0">revoke</button></div>`).join("")
+    :'<p class="text-smoke text-xs">No active sessions.</p>';
+  document.querySelectorAll("[data-rev]").forEach(b=>b.onclick=async()=>{
+    await api(`/api/admin/sessions/${encodeURIComponent(b.dataset.rev)}`,{method:"DELETE"});
+    toast("Session revoked","success"); renderSecurity(); });
+  $("auditRows").innerHTML=audit.length?audit.map(a=>`
+    <div class="flex gap-2.5 items-baseline">
+      <span class="text-[11px] text-smoke w-28 shrink-0">${new Date(a.ts*1000).toLocaleString()}</span>
+      <span class="text-xs font-semibold w-24 shrink-0 truncate">${esc(a.actor)}</span>
+      <span class="text-xs grad-text font-bold w-28 shrink-0 truncate">${esc(a.action)}</span>
+      <span class="text-xs text-smoke flex-1 truncate" title="${esc(a.detail)}">${esc(a.detail)}</span></div>`).join("")
+    :'<p class="text-smoke text-xs">No events yet.</p>';
+  $("totpState").textContent=me.totp_enabled?"2FA is enabled on your account.":"2FA is off — enable it before deploying publicly.";
+  $("totpEnableBtn").classList.toggle("hidden",me.totp_enabled);
+  $("totpDisableBtn").classList.toggle("hidden",!me.totp_enabled);
+}
+$("addAdminBtn").addEventListener("click", async ()=>{
+  const u=$("newAdminUser").value.trim(), p=$("newAdminPass").value;
+  if(!u||p.length<8) return toast("Username + password of 8+ characters required","warn");
+  try{ await api("/api/admin/admins",{method:"POST",body:JSON.stringify({username:u,password:p})});
+    $("newAdminUser").value=""; $("newAdminPass").value=""; toast("Admin added","success"); renderSecurity();
+  }catch(e){ toast(e.message); }
+});
+$("totpEnableBtn").addEventListener("click", async ()=>{
+  const d=await api("/api/admin/totp/setup",{method:"POST"});
+  $("totpSecret").textContent=d.secret;
+  $("totpSetupBox").classList.remove("hidden");
+});
+$("totpCancelBtn").addEventListener("click",()=>$("totpSetupBox").classList.add("hidden"));
+$("totpConfirmBtn").addEventListener("click", async ()=>{
+  try{ await api("/api/admin/totp/confirm",{method:"POST",body:JSON.stringify({code:$("totpCode").value})});
+    $("totpSetupBox").classList.add("hidden"); toast("2FA enabled ✔","success"); renderSecurity();
+  }catch(e){ toast(e.message); }
+});
+$("totpDisableBtn").addEventListener("click", async ()=>{
+  if(!confirm("Disable 2FA on your account?"))return;
+  await api("/api/admin/totp",{method:"DELETE"}); toast("2FA disabled","warn"); renderSecurity();
+});
+
+/* ---------- maintenance ---------- */
+async function doClearDisk(btn){
+  if(!confirm("Clear disk?\n\nThis deletes every staged file (uploads, outputs, logs). Job records are kept.")) return;
+  btn.disabled=true;
+  try{
+    const d=await api("/api/admin/disk/clear",{method:"POST"});
+    toast(`Disk cleared — freed ${fmtBytes(d.freed_bytes)}`,"success");
+    refresh();
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled=false; }
+}
+async function doClearJobs(btn){
+  if(!confirm("Clear ALL jobs?\n\nThis removes every job record and its files. This cannot be undone.")) return;
+  btn.disabled=true;
+  try{
+    const d=await api("/api/admin/jobs/clear",{method:"POST"});
+    toast(`Cleared ${d.removed} jobs`,"success");
+    refresh();
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled=false; }
+}
+async function doResetData(){
+  if(!confirm("RESET ALL DATA?\n\nThis wipes jobs, deliveries, audit log, bans, health checks, lifetime stats AND all staged files.\n\nAdmins, sessions and settings are kept.\n\nThis cannot be undone.")) return;
+  if(!confirm("Are you really sure?")) return;
+  const ok=prompt("Final confirmation — type 'RESET' to wipe all data:");
+  if(ok!=="RESET"){ toast("Reset cancelled.","warn"); return; }
+  try{
+    const d=await api("/api/admin/data/reset",{method:"POST"});
+    toast(`Data reset — freed ${fmtBytes(d.freed_bytes)}`,"success");
+    refresh();
+  }catch(e){ toast(e.message); }
+}
+$("clearDiskBtn").addEventListener("click",(e)=>doClearDisk(e.currentTarget));
+$("clearJobsBtn").addEventListener("click",(e)=>doClearJobs(e.currentTarget));
+$("clearJobsBtn2").addEventListener("click",(e)=>doClearJobs(e.currentTarget));
+$("resetDataBtn").addEventListener("click",doResetData);
+$("quickSelftestBtn").addEventListener("click", async (e)=>{
+  const btn=e.currentTarget; btn.disabled=true;
+  try{ await api("/api/admin/selftest",{method:"POST"}); toast("Self-test started — check Platform health in ~20s","success"); }
+  catch(err){ toast(err.message); }
+  finally{ setTimeout(()=>{ btn.disabled=false; },3000); }
+});
+
+/* ---------- master refresh ---------- */
+async function refresh(){
+  if(!TOKEN) return;
+  try{
+    const s=await api("/api/admin/stats");
+    renderStats(s);
+    if(currentTab==="overview"){ await renderSeries(); renderActivity(); }
+    else if(currentTab==="jobs") await renderJobs();
+    else if(currentTab==="health") await renderHealth();
+    else if(currentTab==="abuse") await renderAbuse();
+    else if(currentTab==="settings"){ if(!$("settingsGrid").children.length) await renderSettings(); }
+    else if(currentTab==="security") await renderSecurity();
+    else if(currentTab==="maintenance"){} // stats already refreshed the disk ring
+    lastRefresh=Date.now();
+  }catch(e){ if(e.message!=="unauthorized") console.warn(e); }
+}
+function beginPolling(){
+  if(timer) clearInterval(timer);
+  timer=setInterval(refresh,3000);
+}
+
+TOKEN ? showDash() : showLogin();
+</script>
+</body>
+</html>

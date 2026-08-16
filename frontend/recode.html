@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NyxDownloader — Recode Studio</title>
+<meta name="description" content="Compress any video to your exact target size, fix audio/video sync drift, or repair broken containers — all without visible quality loss." />
+<script>
+(function () {
+  var saved = null;
+  try { saved = localStorage.getItem("ss-theme"); } catch (e) {}
+  var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle("dark", dark);
+})();
+</script>
+<link rel="stylesheet" href="/tailwind.css" />
+<style>
+  :root { --c-ink:29 29 31; --c-smoke:117 117 122; --c-mist:245 245 247;
+          --hairline:rgba(0,0,0,.07); --surface:rgba(255,255,255,.82); --surface-solid:#ffffff;
+          --g1:#0a84ff; --g2:#5e5ce6; --g3:#bf5af2; color-scheme:light; }
+  .dark { --c-ink:240 240 243; --c-smoke:158 158 165; --c-mist:30 30 32;
+          --hairline:rgba(255,255,255,.09); --surface:rgba(32,32,34,.78); --surface-solid:#1c1c1e;
+          color-scheme:dark; }
+  body { background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(94,92,230,.06), transparent 60%),
+    radial-gradient(1000px 500px at -10% 20%, rgba(10,132,255,.05), transparent 55%), #f5f5f7; }
+  .dark body { background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(94,92,230,.13), transparent 60%),
+    radial-gradient(1000px 500px at -10% 20%, rgba(10,132,255,.09), transparent 55%), #0a0a0c; }
+
+  .grad-text { background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3));
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .grad-btn { background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3));
+    background-size:200% 100%; transition:background-position .5s ease, transform .15s ease, opacity .2s; }
+  .grad-btn:hover:not(:disabled){ background-position:100% 0; }
+  .grad-btn:active:not(:disabled){ transform:scale(.98); }
+  .grad-btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .fade-up { animation:fadeUp .5s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes fadeUp { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:none} }
+
+  .progress-track{ background:rgba(0,0,0,.06); overflow:hidden; }
+  .dark .progress-track{ background:rgba(255,255,255,.12); }
+  .progress-fill{ background:linear-gradient(90deg,var(--g1),var(--g2),var(--g3));
+    background-size:200% 100%; transition:width .4s cubic-bezier(.22,1,.36,1); }
+  .progress-indeterminate .progress-fill{ width:40%!important; animation:slide 1.2s ease-in-out infinite; }
+  @keyframes slide{ 0%{margin-left:-40%} 100%{margin-left:100%} }
+
+  select.ss-select{ appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2375757a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 1rem center; }
+  .dark select.ss-select{ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239e9ea5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
+  /* native dropdown lists must follow the theme too */
+  .dark select { background-color:#2c2c2e; color:#f0f0f3; }
+  .dark select option { background-color:#2c2c2e; color:#f0f0f3; }
+
+  #dropZone.drag { border-color:var(--g2); background:linear-gradient(135deg,rgba(10,132,255,.05),rgba(191,90,242,.05)); }
+
+  .fn-card { transition: border-color .2s ease, background .2s ease, transform .1s ease; }
+  .fn-card:hover { transform: translateY(-1px); }
+  .fn-card.selected { border-color: rgba(94,92,230,.55);
+    background: linear-gradient(135deg, rgba(10,132,255,.06), rgba(191,90,242,.06)); }
+  .dark .fn-card.selected { background: linear-gradient(135deg, rgba(10,132,255,.12), rgba(191,90,242,.12)); }
+</style>
+</head>
+
+<body class="font-sans text-ink min-h-screen flex flex-col">
+
+<header class="sticky top-0 z-40 backdrop-blur-xl bg-surface border-b border-hairline">
+  <div class="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
+    <a href="/recode" class="flex items-center gap-2.5 font-semibold tracking-tight text-[15px]">
+      <span class="w-7 h-7 rounded-[9px] grad-btn grid place-items-center">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      </span>
+      Nyx<span class="grad-text font-bold">Downloader</span>&nbsp;· Recode Studio
+    </a>
+    <a href="/" class="text-smoke hover:text-ink text-xs transition-colors">← Downloader</a>
+  </div>
+</header>
+
+<main class="flex-1 w-full max-w-3xl mx-auto px-5 pb-16">
+
+  <section class="text-center pt-12 pb-8">
+    <h1 class="text-3xl sm:text-5xl font-bold tracking-tight leading-[1.08]">
+      Fix it. Shrink it.<br/><span class="grad-text">Post it anywhere.</span>
+    </h1>
+    <p class="mt-4 text-smoke text-base sm:text-[17px] max-w-xl mx-auto leading-relaxed">
+      Upload any video and choose what Recode should do — compress it to an exact size,
+      fix sync drift, or repair a broken container. Resolution stays untouched.
+    </p>
+  </section>
+
+  <div id="toast" class="hidden max-w-2xl mx-auto mb-5 rounded-2xl border px-4 py-3 text-sm"></div>
+
+  <!-- STEP 1 · upload -->
+  <section id="uploadCard" class="bg-card border border-hairline rounded-2.5xl shadow-sm p-6 fade-up">
+    <div id="dropZone" class="border-2 border-dashed border-hairline rounded-2xl p-10 text-center cursor-pointer transition-colors hover:bg-mist/40">
+      <svg class="mx-auto text-smoke" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/>
+      </svg>
+      <p class="mt-3 font-medium">Drop your video here, or <span class="grad-text font-semibold">browse</span></p>
+      <p class="text-smoke text-xs mt-1.5">MP4 · MOV · MKV · WEBM — up to 800 MB</p>
+      <input id="fileInput" type="file" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" class="hidden" />
+    </div>
+    <div id="uploadProgress" class="hidden mt-4">
+      <div class="flex justify-between text-xs text-smoke mb-1.5"><span id="upLabel">Uploading…</span><span id="upPct">0%</span></div>
+      <div class="progress-track h-2 rounded-full"><div id="upFill" class="progress-fill h-full rounded-full" style="width:0%"></div></div>
+    </div>
+  </section>
+
+  <!-- STEP 2 · file info -->
+  <section id="fileCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <h2 id="fileName" class="font-semibold truncate"></h2>
+        <p id="fileMeta" class="text-smoke text-sm mt-1"></p>
+      </div>
+      <button id="changeFileBtn" class="text-smoke hover:text-ink text-xs shrink-0 mt-1">change</button>
+    </div>
+  </section>
+
+  <!-- STEP 3 · pick a function -->
+  <section id="optionsCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+    <label class="text-xs font-medium text-smoke uppercase tracking-wide">What should Recode do?</label>
+    <div class="grid sm:grid-cols-3 gap-3 mt-2.5">
+      <button data-fn="compress" class="fn-card selected text-left border border-hairline rounded-2xl p-4 bg-mist/40">
+        <div class="text-lg">🗜️</div>
+        <p class="font-semibold text-sm mt-1.5">Compress</p>
+        <p class="text-smoke text-xs mt-1 leading-relaxed">Shrink to your exact target size, platform upload-ready.</p>
+      </button>
+      <button data-fn="sync" class="fn-card text-left border border-hairline rounded-2xl p-4 bg-mist/40">
+        <div class="text-lg">🎞️</div>
+        <p class="font-semibold text-sm mt-1.5">Fix A/V sync</p>
+        <p class="text-smoke text-xs mt-1 leading-relaxed">Repair drift &amp; high-bitrate lag — video plays slower than audio.</p>
+      </button>
+      <button data-fn="repair" class="fn-card text-left border border-hairline rounded-2xl p-4 bg-mist/40">
+        <div class="text-lg">🧰</div>
+        <p class="font-semibold text-sm mt-1.5">Repair container</p>
+        <p class="text-smoke text-xs mt-1 leading-relaxed">Fix missing duration / corrupted format info, zero quality loss.</p>
+      </button>
+    </div>
+
+    <!-- compress controls -->
+    <div id="compressControls" class="mt-5">
+      <label class="text-xs font-medium text-smoke uppercase tracking-wide">Where will you post it?</label>
+      <select id="platformSelect" class="ss-select mt-1.5 w-full bg-mist hover:bg-black/[.05] dark:hover:bg-white/[.07] transition rounded-xl px-4 py-3 text-[15px] font-medium pr-10 cursor-pointer">
+        <option value="tiktok">TikTok — output meets TikTok's spec (no re-compression)</option>
+        <option value="instagram">Instagram / Reels — spec-perfect output</option>
+        <option value="youtube">YouTube — spec-perfect output</option>
+        <option value="facebook">Facebook — spec-perfect output</option>
+        <option value="snapchat">Snapchat — spec-perfect output</option>
+        <option value="none">No platform — just compress</option>
+      </select>
+
+      <label class="text-xs font-medium text-smoke uppercase tracking-wide mt-4 block">Target file size (MB)</label>
+      <div class="flex gap-3 mt-1.5">
+        <input id="targetInput" type="number" min="0.1" step="0.1"
+               class="flex-1 bg-mist rounded-xl px-4 py-3 text-[15px] font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+        <button id="planBtn" class="grad-btn text-white font-semibold text-sm rounded-xl px-5 shrink-0">Check plan</button>
+      </div>
+      <div id="sizeChips" class="flex flex-wrap gap-2 mt-3"></div>
+    </div>
+
+    <!-- sync explanation -->
+    <div id="syncControls" class="hidden mt-5 rounded-2xl bg-mist/60 p-5 text-sm leading-relaxed text-smoke">
+      Re-encodes with a <b class="text-ink">constant frame rate</b> and regenerated timestamps —
+      the fix for videos whose playback lags behind the audio because of broken variable
+      timing or runaway bitrate spikes. Quality is kept at <b class="text-ink">CRF 18</b>
+      (visually lossless), and the output is a clean, platform-friendly MP4.
+    </div>
+
+    <!-- repair explanation -->
+    <div id="repairControls" class="hidden mt-5 rounded-2xl bg-mist/60 p-5 text-sm leading-relaxed text-smoke">
+      Rewrites the MP4 container and rebuilds the index — fixing files with
+      <b class="text-ink">missing duration / time info</b> or corrupted structure.
+      Whenever possible it <b class="text-ink">remuxes without re-encoding</b>: instant,
+      at 100% original quality. Only damaged streams get a gentle CRF-16 re-encode.
+    </div>
+
+    <!-- plan result -->
+    <div id="planBox" class="hidden mt-5 rounded-2xl bg-mist/60 p-5">
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="planRating" class="text-xs font-bold px-2.5 py-1 rounded-lg"></span>
+        <span class="text-sm font-semibold" id="planSize"></span>
+      </div>
+      <p id="planNote" class="text-smoke text-sm mt-2 leading-relaxed"></p>
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-1.5 mt-3 text-sm text-smoke">
+        <div class="flex justify-between"><dt>Video bitrate</dt><dd id="planVbr" class="text-ink font-medium"></dd></div>
+        <div class="flex justify-between"><dt>Audio</dt><dd id="planAbr" class="text-ink font-medium"></dd></div>
+        <div class="flex justify-between"><dt>Resolution</dt><dd id="planRes" class="text-ink font-medium"></dd></div>
+        <div class="flex justify-between"><dt>Encoding</dt><dd id="planEnc" class="text-ink font-medium"></dd></div>
+      </dl>
+      <div id="planWarns" class="mt-3 space-y-1.5"></div>
+    </div>
+
+    <button id="recodeBtn" disabled class="grad-btn w-full mt-5 text-white font-semibold rounded-2xl py-3.5 flex items-center justify-center gap-2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      <span id="recodeBtnLabel">Start Recode</span>
+    </button>
+    <p class="text-smoke text-[11px] mt-3 leading-relaxed">
+      Resolution is never changed. Smaller compression targets always mean more compression —
+      the plan above tells you honestly how far you can push it.
+    </p>
+  </section>
+
+  <!-- STEP 4 · progress -->
+  <section id="progressCard" class="hidden bg-card border border-hairline rounded-2.5xl shadow-sm p-6 mt-5 fade-up">
+    <div class="flex items-baseline justify-between text-sm">
+      <span id="stageLabel" class="font-medium">Starting…</span>
+      <span id="pctLabel" class="text-smoke tabular-nums">0%</span>
+    </div>
+    <div id="progressTrack" class="progress-track mt-2.5 h-2.5 rounded-full">
+      <div id="progressFill" class="progress-fill h-full rounded-full" style="width:0%"></div>
+    </div>
+    <p id="stageHint" class="text-smoke text-xs mt-2"></p>
+
+    <div id="doneRow" class="hidden mt-5 flex flex-wrap gap-3">
+      <a id="saveLink" class="grad-btn text-white font-semibold text-sm rounded-xl px-5 py-2.5 inline-flex items-center gap-2" href="#">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M4 21h16"/></svg>
+        Save again
+      </a>
+      <button id="againBtn" class="bg-mist hover:bg-black/[.06] dark:hover:bg-white/[.08] text-ink font-semibold text-sm rounded-xl px-5 py-2.5 transition-colors">
+        Recode another file
+      </button>
+    </div>
+
+    <!-- Error diagnostics: what failed, and a copyable report -->
+    <div id="errorBox" class="hidden mt-5 rounded-xl bg-red-500/10 border border-red-400/25 p-4">
+      <div class="flex items-center gap-2">
+        <svg class="text-red-500 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        <p class="text-sm font-semibold text-red-600 dark:text-red-300" id="errorTitle">Something went wrong</p>
+      </div>
+      <p class="text-[13px] mt-1.5 text-ink/80 dark:text-ink/70 whitespace-pre-wrap leading-relaxed" id="errorMsg"></p>
+      <details class="mt-2.5">
+        <summary class="text-xs cursor-pointer text-smoke select-none">Full diagnostic report</summary>
+        <pre id="errorReport" class="text-[11px] leading-relaxed bg-mist rounded-lg p-3 mt-2 whitespace-pre-wrap break-all"></pre>
+      </details>
+      <button id="copyReportBtn" class="mt-2.5 text-xs font-semibold bg-mist hover:bg-black/[.06] dark:hover:bg-white/[.08] rounded-lg px-3.5 py-2 transition-colors inline-flex items-center gap-1.5">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span id="copyReportLabel">Copy report</span>
+      </button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="border-t border-hairline bg-surface">
+  <div class="max-w-3xl mx-auto px-5 py-6 text-center text-xs text-smoke leading-relaxed">
+    NyxDownloader · Recode Studio — only process content you own or have permission to use.
+  </div>
+</footer>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { upload: null, plan: null, platforms: [], jobId: null, timer: null, fn: "compress" };
+
+const fmtMB = (b) => (b / 1048576).toFixed(b >= 104857600 ? 0 : 1);
+const fmtDur = (s) => { s = Math.round(s || 0); const m = Math.floor(s/60), sec = s%60;
+  return m ? `${m}m ${sec}s` : `${sec}s`; };
+
+function toast(msg, kind = "error") {
+  const styles = {
+    error: "bg-red-50 border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-400/25 dark:text-red-300",
+    success: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-400/25 dark:text-emerald-300",
+    warn: "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-400/25 dark:text-amber-300",
+  };
+  const t = $("toast");
+  t.className = `max-w-2xl mx-auto mb-5 rounded-2xl border px-4 py-3 text-sm ${styles[kind]}`;
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add("hidden"), 7000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  let d = null;
+  try { d = await res.json(); } catch (e) {}
+  if (res.status === 429) throw new Error("Rate limit hit — wait a moment and try again.");
+  if (!res.ok) throw new Error((d && d.detail) || `Request failed (HTTP ${res.status}).`);
+  return d;
+}
+
+/* ---------- upload ---------- */
+const dz = $("dropZone"), fi = $("fileInput");
+dz.addEventListener("click", () => fi.click());
+["dragenter","dragover"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
+dz.addEventListener("drop", (e) => { if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]); });
+fi.addEventListener("change", () => { if (fi.files[0]) uploadFile(fi.files[0]); });
+$("changeFileBtn").addEventListener("click", () => { fi.value = ""; fi.click(); });
+
+function uploadFile(file) {
+  if (file.size > 800 * 1048576) { toast("That file is over the 800 MB limit."); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  const xhr = new XMLHttpRequest();
+  $("uploadProgress").classList.remove("hidden");
+  $("upLabel").textContent = `Uploading ${file.name}…`;
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round(e.loaded / e.total * 100);
+    $("upFill").style.width = pct + "%";
+    $("upPct").textContent = pct + "%";
+  };
+  xhr.onload = () => {
+    $("uploadProgress").classList.add("hidden");
+    $("upFill").style.width = "0%";
+    if (xhr.status >= 200 && xhr.status < 300) {
+      state.upload = JSON.parse(xhr.responseText);
+      $("errorBox").classList.add("hidden");
+      renderFileInfo();
+    } else {
+      let msg = `Server answered HTTP ${xhr.status}.`;
+      try { msg = JSON.parse(xhr.responseText).detail || msg; } catch (e) {}
+      $("progressCard").classList.remove("hidden");
+      showErrorReport("upload", msg);
+    }
+  };
+  xhr.onerror = () => {
+    $("uploadProgress").classList.add("hidden");
+    $("progressCard").classList.remove("hidden");
+    showErrorReport("upload",
+      "The upload request never reached the server (network error). " +
+      "Possible causes: the server is down/restarting, the page URL is stale, " +
+      "a browser extension blocked the request, or the file exceeds a proxy size limit.");
+  };
+  xhr.open("POST", "/api/recode/upload");
+  xhr.send(fd);
+}
+
+function renderFileInfo() {
+  const u = state.upload;
+  $("fileName").textContent = u.filename;
+  const dur = u.duration ? fmtDur(u.duration) : "duration unknown";
+  const res = u.width ? `${u.width}×${u.height}` : "?";
+  const fps = u.fps ? ` @ ${Math.round(u.fps)}fps` : "";
+  const codec = u.vcodec ? ` · ${u.vcodec.toUpperCase()}` : "";
+  const rate = u.bitrate_kbps ? ` · ${Math.round(u.bitrate_kbps)} kb/s` : "";
+  $("fileMeta").textContent = `${fmtMB(u.size)} MB · ${dur} · ${res}${fps}${codec}${rate}`;
+  $("fileCard").classList.remove("hidden");
+  $("optionsCard").classList.remove("hidden");
+  $("progressCard").classList.add("hidden");
+  $("planBox").classList.add("hidden");
+  $("recodeBtn").disabled = true;
+
+  const origMB = u.size / 1048576;
+  $("targetInput").value = (origMB * 0.75).toFixed(1);
+  renderChips();
+  setFunction(state.fn);
+}
+
+/* ---------- function selector ---------- */
+document.querySelectorAll(".fn-card").forEach(c => c.addEventListener("click", () => setFunction(c.dataset.fn)));
+
+function setFunction(fn) {
+  state.fn = fn;
+  document.querySelectorAll(".fn-card").forEach(c => c.classList.toggle("selected", c.dataset.fn === fn));
+  $("compressControls").classList.toggle("hidden", fn !== "compress");
+  $("syncControls").classList.toggle("hidden", fn !== "sync");
+  $("repairControls").classList.toggle("hidden", fn !== "repair");
+  $("recodeBtnLabel").textContent = { compress: "Compress video", sync: "Fix A/V sync", repair: "Repair container" }[fn];
+  fetchPlan();
+}
+
+function platformBestMB() {
+  const p = state.platforms.find(x => x.id === $("platformSelect").value);
+  if (!p || !p.max_video_kbps) return null;
+  const kbps = p.max_video_kbps + p.audio_kbps;
+  return (kbps * 1000 / 8 * (state.upload?.duration || 0)) / 1048576 * 1.02;
+}
+
+function renderChips() {
+  const origMB = state.upload.size / 1048576;
+  const best = platformBestMB();
+  const chips = [["75%", origMB * .75], ["50%", origMB * .5], ["25%", origMB * .25]];
+  $("sizeChips").innerHTML = chips.map(([l, v]) =>
+    `<button data-mb="${v.toFixed(1)}" class="chip bg-mist hover:bg-black/[.06] dark:hover:bg-white/[.08] text-xs font-medium rounded-lg px-3 py-1.5 transition-colors">${l} · ${v.toFixed(1)} MB</button>`
+  ).join("") + (best ? `<button data-mb="${Math.min(best, origMB*0.95).toFixed(1)}" class="chip grad-btn text-white text-xs font-medium rounded-lg px-3 py-1.5">Platform best · ${Math.min(best, origMB*0.95).toFixed(1)} MB</button>` : "");
+  document.querySelectorAll(".chip").forEach(c =>
+    c.addEventListener("click", () => { $("targetInput").value = c.dataset.mb; fetchPlan(); }));
+}
+
+/* ---------- plan ---------- */
+let planTimer = null;
+function fetchPlan() {
+  if (!state.upload) return;
+  clearTimeout(planTimer);
+  planTimer = setTimeout(async () => {
+    const mb = parseFloat($("targetInput").value);
+    const params = new URLSearchParams({ upload_id: state.upload.upload_id, mode: state.fn,
+                                         preset: $("platformSelect").value, t: Date.now() });
+    if (state.fn === "compress") params.set("target_mb", mb || 0);
+    try {
+      const plan = await api(`/api/recode/plan?${params}`);
+      state.plan = plan;
+      renderPlan(plan);
+      $("recodeBtn").disabled = false;
+    } catch (e) {
+      state.plan = null;
+      $("planBox").classList.remove("hidden");
+      $("planRating").className = "text-xs font-bold px-2.5 py-1 rounded-lg bg-red-500/15 text-red-600 dark:text-red-300";
+      $("planRating").textContent = "Can't do that";
+      $("planSize").textContent = "";
+      $("planNote").textContent = e.message;
+      $("planWarns").innerHTML = "";
+      $("planVbr").textContent = $("planAbr").textContent = $("planRes").textContent = $("planEnc").textContent = "—";
+      $("recodeBtn").disabled = true;
+    }
+  }, 350);
+}
+
+const RATING_STYLE = {
+  excellent: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+  great: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+  good: "bg-blue-500/15 text-blue-600 dark:text-blue-300",
+  fair: "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+  low: "bg-red-500/15 text-red-600 dark:text-red-300",
+};
+const RATING_LABEL = { excellent: "Excellent", great: "Great", good: "Good", fair: "Fair", low: "Risky" };
+
+function renderPlan(p) {
+  $("planBox").classList.remove("hidden");
+  $("planRating").className = `text-xs font-bold px-2.5 py-1 rounded-lg ${RATING_STYLE[p.rating]}`;
+  $("planRating").textContent = RATING_LABEL[p.rating];
+  if (p.mode === "compress") {
+    $("planSize").textContent = `${p.original_mb} MB → ~${p.estimated_mb} MB`;
+    $("planEnc").textContent = "2-pass H.264 + AAC";
+    $("planVbr").textContent = `${p.video_kbps.toLocaleString()} kb/s`;
+    $("planAbr").textContent = p.audio_kbps ? `AAC ${p.audio_kbps} kb/s` : "no audio track";
+  } else if (p.mode === "sync") {
+    $("planSize").textContent = `${p.original_mb} MB → ~${p.estimated_mb} MB (similar)`;
+    $("planEnc").textContent = "CFR rebuild · CRF 18";
+    $("planVbr").textContent = p.video_kbps ? `~${p.video_kbps.toLocaleString()} kb/s` : "kept";
+    $("planAbr").textContent = p.audio_kbps ? `AAC ${p.audio_kbps} kb/s` : "no audio track";
+  } else {
+    $("planSize").textContent = `${p.original_mb} MB → ~${p.estimated_mb} MB (same)`;
+    $("planEnc").textContent = "Stream copy (remux)";
+    $("planVbr").textContent = p.video_kbps ? `${p.video_kbps.toLocaleString()} kb/s` : "kept";
+    $("planAbr").textContent = "untouched";
+  }
+  $("planNote").textContent = p.rating_note;
+  $("planRes").textContent = `${p.resolution} (unchanged)`;
+  $("planWarns").innerHTML = (p.warnings || []).map(w =>
+    `<p class="text-xs bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-lg px-3 py-2">${w}</p>`).join("");
+}
+
+$("targetInput").addEventListener("input", fetchPlan);
+$("platformSelect").addEventListener("change", () => { renderChips(); fetchPlan(); });
+$("planBtn").addEventListener("click", fetchPlan);
+
+/* ---------- recode ---------- */
+$("recodeBtn").addEventListener("click", async () => {
+  if (!state.plan) return;
+  $("recodeBtn").disabled = true;
+  $("recodeBtnLabel").textContent = "Starting…";
+  $("progressCard").classList.remove("hidden");
+  $("doneRow").classList.add("hidden");
+  $("errorBox").classList.add("hidden");
+  $("progressTrack").classList.add("progress-indeterminate");
+  setStage("Queued — waiting for a worker…", 0, "");
+  $("progressCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  try {
+    const body = { upload_id: state.upload.upload_id, preset: $("platformSelect").value, mode: state.fn };
+    if (state.fn === "compress") body.target_mb = parseFloat($("targetInput").value);
+    const job = await api("/api/recode/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    state.jobId = job.id;
+    state.bootId = job.boot_id;
+    state.pollFails = 0;
+    pollJob();
+  } catch (e) {
+    $("recodeBtn").disabled = false;
+    $("recodeBtnLabel").textContent = "Start Recode";
+    $("progressTrack").classList.remove("progress-indeterminate");
+    setStage("Couldn't start", 0, "");
+    showErrorReport("start", e.message);
+  }
+});
+
+function setStage(stage, pct, hint) {
+  $("stageLabel").textContent = stage;
+  $("pctLabel").textContent = Math.floor(pct) + "%";   // floor: "40%" only once Pass 2 truly starts
+  $("progressFill").style.width = Math.min(100, pct) + "%";
+  $("stageHint").textContent = hint;
+}
+
+/* ---------- error diagnostics ---------- */
+function buildReport(stage, message) {
+  const u = state.upload || {};
+  const lines = [
+    "NyxDownloader — Recode Studio error report (build v12)",
+    "time: " + new Date().toISOString(),
+    "page: " + location.href,
+    "function: " + state.fn + (state.fn === "compress"
+      ? ` | preset=${$("platformSelect").value} | target=${$("targetInput").value}MB` : ""),
+    `file: ${u.filename || "?"} | ${u.size ? fmtMB(u.size) : "?"} MB | ` +
+      `${u.width || "?"}x${u.height || "?"} | ${u.duration ? u.duration + "s" : "duration unknown"} | ` +
+      `${(u.vcodec || "?").toUpperCase()}${u.bitrate_kbps ? " @ " + Math.round(u.bitrate_kbps) + "kb/s" : ""}`,
+    "job id: " + (state.jobId || "none — failed before the job started"),
+    "failed at: " + stage,
+    "error: " + message,
+  ];
+  return lines.join("\n");
+}
+
+function showErrorReport(stage, message) {
+  $("errorTitle").textContent = {
+    upload: "Upload failed", start: "Couldn't start the recode",
+    job: "The recode failed", connection: "Connection problem",
+  }[stage] || "Something went wrong";
+  $("errorMsg").textContent = message;
+  $("errorReport").textContent = buildReport(stage, message);
+  $("errorBox").classList.remove("hidden");
+  $("errorBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+$("copyReportBtn").addEventListener("click", async () => {
+  const text = $("errorReport").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy"); ta.remove();
+  }
+  $("copyReportLabel").textContent = "Copied ✔";
+  setTimeout(() => $("copyReportLabel").textContent = "Copy report", 2000);
+});
+
+function stageFor(pct) {
+  if (state.fn === "repair")
+    return pct < 30 ? ["Rewriting the container…", "Stream copy first — 100% original quality when possible."]
+                    : ["Re-encoding damaged streams gently…", "Fallback path — CRF 16 keeps quality visually lossless."];
+  if (state.fn === "sync")
+    return ["Rebuilding timestamps at constant frame rate…", "Fixing drift between video and audio."];
+  return pct < 40 ? ["Pass 1 of 2 — analysing footage…", "Measuring where the bits are needed most."]
+                  : ["Pass 2 of 2 — encoding to your target size…", "Original resolution, platform-spec output."];
+}
+
+function pollJob() {
+  clearTimeout(state.timer);
+  const tick = async () => {
+    try {
+      const j = await api(`/api/jobs/${state.jobId}?t=${Date.now()}`);
+      state.pollFails = 0;
+      $("progressTrack").classList.toggle("progress-indeterminate", false);
+      // Server restarted mid-encode → the worker thread is gone. Say so
+      // loudly instead of sitting on the last progress number forever.
+      if (state.bootId && j.boot_id && j.boot_id !== state.bootId && j.status !== "done") {
+        failJob("The server restarted while encoding — the job was lost. Please start again.");
+        return;
+      }
+      if (["processing","queued","downloading"].includes(j.status)) {
+        const pct = Math.max(1, j.progress || 0);
+        const [s, h] = stageFor(pct);
+        setStage(s, pct, h);
+        state.timer = setTimeout(tick, 900);
+      } else if (j.status === "done") {
+        setStage(`Done — ${j.filename}`, 100, "");
+        deliver(j);
+      } else {
+        failJob(j.error || "Recode failed.");
+      }
+    } catch (e) {
+      // Tolerate network/restore blips for ~50s (covers a server restart);
+      // only then give up — with a message that explains what happened.
+      state.pollFails = (state.pollFails || 0) + 1;
+      if (state.pollFails >= 30) {
+        failJob("Lost connection to the server — it was likely restarting, and the in-progress encode went with it. Please upload and start again. (Browser said: " + e.message + ")", "connection");
+        return;
+      }
+      $("progressTrack").classList.add("progress-indeterminate");
+      $("stageLabel").textContent = "Connection hiccup — retrying…";
+      $("stageHint").textContent = "The server may be restarting; holding your place.";
+      state.timer = setTimeout(tick, 1600);
+    }
+  };
+  state.timer = setTimeout(tick, 800);
+}
+
+async function deliver(job) {
+  $("recodeBtn").disabled = false;
+  $("recodeBtnLabel").textContent = "Start again";
+  try {
+    const res = await fetch(job.download_url);
+    const blob = await res.blob();
+    if (deliver._url) URL.revokeObjectURL(deliver._url);
+    deliver._url = URL.createObjectURL(blob);
+    triggerSave(deliver._url, job.filename);
+    $("saveLink").href = deliver._url;
+    $("saveLink").setAttribute("download", job.filename);
+  } catch (e) {
+    $("saveLink").href = job.download_url;
+    $("saveLink").removeAttribute("download");
+    triggerSave(job.download_url, job.filename);
+  }
+  $("doneRow").classList.remove("hidden");
+  toast(`Recode complete — ${(job.filesize/1048576).toFixed(1)} MB.`, "success");
+}
+
+function triggerSave(href, name) {
+  const a = document.createElement("a");
+  a.href = href;
+  if (name) a.download = name;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function failJob(msg, kind = "job") {
+  clearTimeout(state.timer);
+  $("progressTrack").classList.remove("progress-indeterminate");
+  $("recodeBtn").disabled = false;
+  $("recodeBtnLabel").textContent = "Start again";
+  setStage(kind === "connection" ? "Connection lost" : "The recode failed", 0, "");
+  showErrorReport(kind, msg);
+}
+
+$("againBtn").addEventListener("click", () => location.reload());
+
+/* ---------- boot ---------- */
+api("/api/recode/platforms").then((p) => { state.platforms = p; }).catch(() => {});
+</script>
+</body>
+</html>
