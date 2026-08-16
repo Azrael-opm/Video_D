@@ -1,0 +1,20 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 180,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3,
+    "sleepApplication": false,
+    "limitOverride": {
+      "containers": {
+        "cpu": { "cores": 2 },
+        "memoryBytes": 2147483648
+      }
+    }
+  }
+}
