@@ -71,6 +71,8 @@ const PLATFORMS = {
   },
   youtube: {
     name: "YouTube",
+    hold: true,
+    holdMsg: "YouTube downloads are on hold while we work on a fix — back soon! 🚧",
     icon: (c = "#FF0000") => `
       <svg viewBox="0 0 24 24" width="16" height="16" fill="${c}">
         <path d="M21.6 7.2a2.5 2.5 0 0 0-1.76-1.77C18.25 5 12 5 12 5s-6.25 0-7.84.43A2.5 2.5 0 0 0 2.4 7.2 26.3 26.3 0 0 0 2 12a26.3 26.3 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.76 1.77C5.75 19 12 19 12 19s6.25 0 7.84-.43a2.5 2.5 0 0 0 1.76-1.77A26.3 26.3 0 0 0 22 12a26.3 26.3 0 0 0-.4-4.8ZM10 15.2V8.8L15.5 12 10 15.2Z"/>
@@ -198,6 +200,9 @@ function resetMediaUI() {
 async function analyze() {
   const url = els.input.value.trim();
   if (!url) { showToast("Paste a link first.", "warn"); return; }
+
+  const held = detectPlatform(url);
+  if (held && PLATFORMS[held].hold) { showToast(PLATFORMS[held].holdMsg, "warn"); return; }
 
   resetMediaUI();
   state.meta = null; state.job = null; state.downloading = false;
@@ -560,9 +565,13 @@ function renderPills() {
     .filter(([k]) => k !== "generic")
     .map(([key, p]) => `
       <span class="platform-pill flex items-center gap-2 bg-surface border border-hairline rounded-full
-                   px-3.5 py-2 text-[13px] font-medium text-smoke shadow-pill transition-all"
+                   px-3.5 py-2 text-[13px] font-medium text-smoke shadow-pill transition-all
+                   ${p.hold ? "opacity-75 border-dashed" : ""}"
             data-platform="${key}">
         ${p.icon()} ${p.name}
+        ${p.hold ? `<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-600
+                     dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-full
+                     px-1.5 py-0.5">soon</span>` : ""}
       </span>`).join("");
 }
 
@@ -571,19 +580,25 @@ function setActivePill(platform) {
     el.classList.toggle("active", el.dataset.platform === platform));
 }
 
-function onInput() {
-  const url = els.input.value.trim();
+function detectPlatform(url) {
   const host = (() => { try { return new URL(url.includes("://") ? url : `https://${url}`).hostname; } catch { return ""; } })();
-  const platform = Object.keys(PLATFORMS).find((k) => {
+  return Object.keys(PLATFORMS).find((k) => {
     const pats = { tiktok: /tiktok/, instagram: /instagram/, snapchat: /snapchat/,
                    facebook: /facebook|fb\./, twitter: /(^|\.)(twitter|x)\.|^t\.co$/,
                    reddit: /reddit|redd\.it/, pinterest: /pinterest|pin\.it/,
                    youtube: /youtube|youtu\.be/ };
     return pats[k]?.test(host);
-  });
+  }) || null;
+}
+
+function onInput() {
+  const url = els.input.value.trim();
+  const platform = detectPlatform(url);
   setActivePill(platform || "");
   els.hint.textContent = platform
-    ? `${PLATFORMS[platform].name} link detected — hit Fetch.`
+    ? (PLATFORMS[platform].hold
+        ? PLATFORMS[platform].holdMsg
+        : `${PLATFORMS[platform].name} link detected — hit Fetch.`)
     : "Tip: paste a link and we'll detect the platform automatically.";
 }
 
