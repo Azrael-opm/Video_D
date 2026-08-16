@@ -127,8 +127,10 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
     if platform == "youtube" and ("bot" in low or "sign in" in low):
         return ("YouTube is bot-checking this server's IP (normal for datacenter hosts) — "
                 "the video itself is public and fine. We already retried through alternate "
-                "player clients; wait a minute and try again, or paste YouTube cookies in "
-                "Admin → Security to skip the check for good.")
+                "player clients; on hosts where every client is gated (Render's IP pool) "
+                "the only reliable bypass is a logged-in session: paste YouTube cookies in "
+                "Admin → Security, or set the COOKIES_TEXT env var so it survives restarts "
+                "on ephemeral hosts.")
     if platform == "youtube" and "age" in low and ("restrict" in low or "confirm" in low):
         return ("This YouTube video is age-restricted — YouTube only plays it for "
                 "signed-in accounts. Add YouTube cookies in Admin → Security to unlock it.")
