@@ -575,7 +575,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "veryfast", "-threads", "2", "-crf", "16", "-fps_mode", "cfr",
+               "-preset", "veryfast", "-threads", ENC_THREADS, "-crf", "16", "-fps_mode", "cfr",
                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats",
                str(out)]
@@ -591,7 +591,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "veryfast", "-threads", "2", "-crf", "18", "-fps_mode", "cfr",
+               "-preset", "veryfast", "-threads", ENC_THREADS, "-crf", "18", "-fps_mode", "cfr",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
         cmd += ["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr else ["-an"]
         cmd.append(str(out))
@@ -610,7 +610,7 @@ def _upload_recode(job: Job) -> Path:
     cmd1 = [config.FFMPEG_PATH, "-y", *common_in,
             "-c:v", "libx264", "-b:v", f"{vbr}k",
             "-maxrate", f"{int(vbr * 1.3)}k", "-bufsize", f"{int(vbr * 2.6)}k",
-            "-preset", "veryfast", "-threads", "2",
+            "-preset", "veryfast", "-threads", ENC_THREADS,
             "-fps_mode", "cfr", "-pass", "1", "-passlogfile", passlog,
             "-an", "-progress", "pipe:1", "-nostats", "-f", "null", os.devnull]
     _ffmpeg_with_progress(cmd1, job, duration, 5.0, 40.0)
@@ -622,7 +622,7 @@ def _upload_recode(job: Job) -> Path:
             "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
             "-bufsize", f"{int(vbr * 2.6)}k",
-            "-preset", "veryfast", "-threads", "2", "-pass", "2", "-passlogfile", passlog,
+            "-preset", "veryfast", "-threads", ENC_THREADS, "-pass", "2", "-passlogfile", passlog,
             "-fps_mode", "cfr",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
     if abr:
