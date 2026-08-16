@@ -1,0 +1,11 @@
+{
+  "name": "nyx-tailwind-build",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tailwindcss -i input.css -o ../frontend/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.10"
+  }
+}

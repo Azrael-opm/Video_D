@@ -76,6 +76,14 @@
 
   .scroll-thin::-webkit-scrollbar { width:6px; height:6px; }
   .scroll-thin::-webkit-scrollbar-thumb { background:rgba(120,120,128,.3); border-radius:3px; }
+
+  html, body { overflow-x:clip; }
+  @media (max-width:767.98px){
+    .nav-item { padding:.5rem .8rem; font-size:.8125rem; gap:.45rem; }
+    .nav-item svg { width:14px; height:14px; flex:none; }
+    .nav-fade { -webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent);
+                mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent); }
+  }
 </style>
 </head>
 <body class="font-sans text-ink min-h-screen">
@@ -105,7 +113,7 @@
 
   <!-- ── SIDEBAR ── -->
   <aside class="md:w-60 md:min-h-screen shrink-0 border-b md:border-b-0 md:border-r border-hairline bg-surface backdrop-blur-xl md:sticky md:top-0 md:self-start z-30">
-    <div class="flex md:flex-col items-center md:items-stretch gap-3 md:gap-0 px-4 py-3 md:py-5">
+    <div class="flex flex-col items-stretch gap-2 md:gap-0 px-4 py-3 md:py-5">
       <div class="flex items-center gap-2.5 font-semibold tracking-tight">
         <span class="w-8 h-8 rounded-[10px] grad-btn grid place-items-center shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v12"/><path d="m6 9 6 6 6-6"/><path d="M4 21h16"/></svg>
@@ -116,7 +124,7 @@
         </div>
       </div>
 
-      <nav id="sideNav" class="flex md:flex-col gap-1 md:mt-6 overflow-x-auto scroll-thin flex-1 md:flex-none">
+      <nav id="sideNav" class="nav-fade flex md:flex-col gap-1 md:mt-6 overflow-x-auto scroll-thin w-full min-w-0 pb-0.5">
         <button class="nav-item" data-tab="overview"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
         <button class="nav-item" data-tab="jobs"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Jobs</button>
         <button class="nav-item" data-tab="health"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Platform health</button>
@@ -144,7 +152,7 @@
   <!-- ── MAIN ── -->
   <div class="flex-1 min-w-0">
     <header class="sticky top-0 z-20 backdrop-blur-xl bg-surface border-b border-hairline">
-      <div class="px-5 md:px-7 h-14 flex items-center justify-between gap-3">
+      <div class="px-4 md:px-7 h-14 flex items-center justify-between gap-3">
         <h1 id="pageTitle" class="font-semibold tracking-tight">Overview</h1>
         <div class="flex items-center gap-3">
           <span class="hidden sm:flex items-center gap-2 text-xs text-smoke">
@@ -161,7 +169,7 @@
       </div>
     </header>
 
-    <main class="px-5 md:px-7 py-6 max-w-6xl">
+    <main class="px-4 md:px-7 py-5 md:py-6 max-w-6xl">
 
       <!-- ══ OVERVIEW ══ -->
       <section id="tab-overview" class="tabpane space-y-5">
@@ -204,10 +212,10 @@
       <!-- ══ JOBS ══ -->
       <section id="tab-jobs" class="tabpane hidden space-y-4">
         <div class="flex flex-wrap items-center gap-2.5">
-          <div class="relative">
+          <div class="relative flex-1 min-w-44 sm:flex-none">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-smoke" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             <input id="jobSearch" type="text" placeholder="Search title, URL, IP…"
-                   class="bg-surface border border-hairline text-sm rounded-xl pl-9 pr-3 py-2.5 w-60 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                   class="bg-surface border border-hairline text-sm rounded-xl pl-9 pr-3 py-2.5 w-full sm:w-60 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
           </div>
           <select id="jobStatusFilter" class="bg-surface border border-hairline text-sm rounded-xl px-3 py-2.5 focus:outline-none">
             <option value="">All statuses</option>
@@ -228,8 +236,8 @@
             <table class="w-full text-sm">
               <thead><tr class="text-left text-[11px] text-smoke uppercase tracking-wider border-b border-hairline">
                 <th class="px-4 py-3 font-semibold">When</th><th class="px-2 py-3 font-semibold">Platform</th>
-                <th class="px-2 py-3 font-semibold">Mode</th><th class="px-2 py-3 font-semibold">Status</th>
-                <th class="px-2 py-3 font-semibold">IP</th><th class="px-2 py-3 font-semibold text-right">Size</th>
+                <th class="hidden sm:table-cell px-2 py-3 font-semibold">Mode</th><th class="px-2 py-3 font-semibold">Status</th>
+                <th class="hidden sm:table-cell px-2 py-3 font-semibold">IP</th><th class="px-2 py-3 font-semibold text-right">Size</th>
                 <th class="px-4 py-3 font-semibold text-right">Actions</th></tr></thead>
               <tbody id="jobsBody"></tbody>
             </table>
@@ -703,11 +711,11 @@ function drawJobs(){
     return `<tr class="border-b border-hairline last:border-0 hover:bg-mist/40 transition-colors">
     <td class="px-4 py-3 whitespace-nowrap text-xs text-smoke">${timeAgo(j.created_at)}
       <div class="text-ink/85 text-[13px] max-w-52 truncate font-medium" title="${esc(j.title||j.url)}">${esc(j.title||j.url||"—")}</div></td>
-    <td class="px-2 py-3 capitalize text-sm">${esc(j.platform||"—")}</td>
-    <td class="px-2 py-3 text-sm">${esc(j.mode)}${j.preset?` · ${esc(j.preset)}`:""}${j.target_mb?` · ${j.target_mb}MB`:""}</td>
+    <td class="px-2 py-3 capitalize text-sm">${esc(j.platform||"—")}<span class="sm:hidden block text-[10px] text-smoke normal-case">${esc(j.mode)}</span></td>
+    <td class="hidden sm:table-cell px-2 py-3 text-sm">${esc(j.mode)}${j.preset?` · ${esc(j.preset)}`:""}${j.target_mb?` · ${j.target_mb}MB`:""}</td>
     <td class="px-2 py-3"><span class="status-pill ${pill}"><span class="dot"></span>${esc(j.status)}${j.status==="downloading"?` ${Math.round(j.progress||0)}%`:""}</span>
       ${j.error?`<div class="text-red-500 text-[11px] max-w-48 truncate mt-1.5" title="${esc(j.error)}">${esc(j.error)}</div>`:""}</td>
-    <td class="px-2 py-3 text-xs text-smoke font-mono">${esc(j.client_ip||"—")}</td>
+    <td class="hidden sm:table-cell px-2 py-3 text-xs text-smoke font-mono">${esc(j.client_ip||"—")}</td>
     <td class="px-2 py-3 text-right text-xs text-smoke whitespace-nowrap">${j.filesize?fmtBytes(j.filesize):"—"}</td>
     <td class="px-4 py-3 text-right whitespace-nowrap text-xs font-medium space-x-2.5">
       ${["queued","downloading","processing"].includes(j.status)?`<button data-cancel="${j.id}" class="text-amber-600 dark:text-amber-300 hover:underline">cancel</button>`:""}

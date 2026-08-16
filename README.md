@@ -176,13 +176,13 @@ The UI ships with a **precompiled** `frontend/tailwind.css` — no CDN, no build
 needed to run. If you edit classes in any page, rebuild the stylesheet:
 
 ```bash
-cd build
+cd tailwind-src
 npm install                    # installs tailwindcss CLI (one-time)
 npx tailwindcss -i input.css -o ../frontend/tailwind.css --minify
 ```
 
-`build/tailwind.config.js` holds the theme tokens (colors are CSS-variable driven,
-so dark mode inverts automatically).
+`tailwind-src/tailwind.config.js` holds the theme tokens (colors are CSS-variable
+driven, so dark mode inverts automatically).
 
 ## Project layout
 
