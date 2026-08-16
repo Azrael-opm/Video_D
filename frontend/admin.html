@@ -440,6 +440,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 let TOKEN = null;
+let state = { cookieDomains: {}, cookieEditDomain: null };
 try { TOKEN = localStorage.getItem("nyx-admin-token"); } catch (e) {}
 let timer = null, tickTimer = null, currentTab = "overview";
 let LAST_JOBS = [], LAST_STATS = null, lastRefresh = Date.now();
