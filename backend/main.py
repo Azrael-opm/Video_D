@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 import secrets
 import threading
@@ -75,6 +76,7 @@ def _limit(request: Request, setting_key: str) -> None:
 async def lifespan(_: FastAPI):
     if not db.admins_list():
         db.admin_upsert("admin", auth.hash_password(config.ADMIN_PASSWORD), None)
+    _restore_cookies()
     jobstore.start_cleanup_loop()
     yield
 
@@ -326,6 +328,83 @@ def recode_platforms():
 @app.get("/recode")
 def recode_page():
     return FileResponse(FRONTEND_DIR / "recode.html")
+
+
+# ===========================================================================
+# Platform cookies (Instagram stories etc.) — managed from the admin console
+# ===========================================================================
+import base64 as _b64
+
+
+def _restore_cookies() -> None:
+    """On ephemeral hosts the cookies file dies with the container; restore it
+    from the (base64) settings row so login-gated platforms keep working."""
+    if config.COOKIES_FILE and Path(config.COOKIES_FILE).exists():
+        return
+    raw = db.get_setting("cookies_b64")
+    if raw:
+        try:
+            config.COOKIES_PATH.write_bytes(_b64.b64decode(raw))
+            config.COOKIES_FILE = str(config.COOKIES_PATH)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _to_netscape(text: str) -> str:
+    """Accept Netscape cookies.txt as-is; convert a raw `a=1; b=2` paste into
+    Netscape lines for .instagram.com so casual pastes still work."""
+    text = text.strip()
+    if not text:
+        return text
+    if text.startswith("# Netscape") or "\t" in text:
+        return text
+    pairs = re.split(r"[;\n]+", text)
+    lines = ["# Netscape HTTP Cookie File"]
+    for p in pairs:
+        p = p.strip()
+        if not p or "=" not in p:
+            continue
+        name, _, value = p.partition("=")
+        lines.append(f".instagram.com\tTRUE\t/\tTRUE\t0\t{name.strip()}\t{value.strip()}")
+    return "\n".join(lines) + "\n"
+
+
+class CookiesPayload(BaseModel):
+    content: str = Field(..., min_length=10, max_length=200_000)
+
+
+@app.get("/api/admin/cookies")
+def admin_cookies_status(request: Request):
+    _actor(request)
+    return {"configured": bool(config.COOKIES_FILE),
+            "source": "env" if os.getenv("COOKIES_FILE")
+                      else ("dashboard" if config.COOKIES_FILE else "none")}
+
+
+@app.post("/api/admin/cookies")
+def admin_cookies_set(request: Request, body: CookiesPayload):
+    actor = _actor(request)
+    content = _to_netscape(body.content)
+    config.COOKIES_PATH.write_text(content, encoding="utf-8")
+    config.COOKIES_FILE = str(config.COOKIES_PATH)
+    db.set_setting("cookies_b64", _b64.b64encode(content.encode()).decode())
+    db.audit(actor, "cookies_set", "platform cookies stored (survives redeploys)")
+    return {"ok": True}
+
+
+@app.delete("/api/admin/cookies")
+def admin_cookies_delete(request: Request):
+    actor = _actor(request)
+    if not os.getenv("COOKIES_FILE"):
+        config.COOKIES_FILE = None
+    try:
+        config.COOKIES_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+    db.q("DELETE FROM settings WHERE key='cookies_b64'", (), fetch=False)
+    db._settings_cache = (0.0, {})
+    db.audit(actor, "cookies_removed")
+    return {"ok": True}
 
 
 # ===========================================================================

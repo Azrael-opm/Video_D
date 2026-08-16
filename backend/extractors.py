@@ -524,10 +524,18 @@ def analyze(url: str) -> dict[str, Any]:
                 info = _og_fallback(url, platform)
             if info is None:
                 msg = _strip_ansi(str(exc))
+                if platform == "instagram" and "/stories/" in url:
+                    # Stories are login-gated for everyone, anonymously — always.
+                    raise ValueError(
+                        "Instagram stories ALWAYS require a logged-in session, even for "
+                        "public accounts — that's Instagram's rule, not a bug. Paste your "
+                        "own Instagram cookies in Admin → Security (or set COOKIES_FILE) "
+                        "and stories you can see will download."
+                    ) from exc
                 if "login" in msg.lower() or "cookies" in msg.lower() or "private" in msg.lower():
                     raise ValueError(
                         "This media is private or requires a login to access. "
-                        "Configure COOKIES_FILE on the server to unlock gated content."
+                        "Paste your cookies in Admin → Security (or set COOKIES_FILE) to unlock it."
                     ) from exc
                 if "unsupported url" in msg.lower():
                     raise ValueError("This URL isn't supported. Check that it's a direct link to the post/video.") from exc

@@ -34,6 +34,10 @@ FFMPEG_PATH: str | None = _resolve_ffmpeg()
 # browser with "Get cookies.txt LOCALLY".
 COOKIES_FILE: str | None = os.getenv("COOKIES_FILE") or None
 
+# Where dashboard-uploaded cookies live (restored from SQLite on boot,
+# so they survive redeploys on ephemeral hosts like Render/Railway).
+COOKIES_PATH: Path = Path(os.getenv("COOKIES_PATH", str(Path(__file__).parent / "cookies.txt")))
+
 # Where finished/intermediate media files are stored before being streamed
 # to the client.
 TMP_DIR: Path = Path(os.getenv("TMP_DIR", str(Path(__file__).parent / "downloads")))
