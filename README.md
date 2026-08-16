@@ -245,3 +245,34 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - **Facebook**: private group posts require cookies.
 - **Snapchat**: public Spotlight links work; yt-dlp's `SnapchatSpotlight` extractor
   handles them, profile stories may be gated.
+
+## Why platforms gate servers — and the two real fixes
+
+Every "requires login / bot check / 403 blocked" error across **all** platforms
+(Reddit 403s, Instagram login walls, YouTube's "confirm you're not a bot", the
+silent 360p quality cap) shares one root cause: **your server's IP is a
+datacenter IP**, and platforms trust those far less than home IPs. Railway,
+Render, AWS, GCP — all datacenter. The same code on a home connection gets
+full quality everywhere, anonymously.
+
+No code rewrite changes this: it is the platform's decision about the IP, made
+server-side at YouTube/Reddit/Instagram. (PO-token generators were tested too —
+they "may help" per their own docs and did not lift the gate in live tests.)
+
+**Fix 1 — cookies (5 minutes, works on any host).** Export your logged-in
+session per platform (Admin → Security, or `COOKIES_TEXT`/`COOKIES_B64` env on
+ephemeral hosts). Requests then arrive as *you*, bypassing the anonymous wall.
+
+**Fix 2 — residential egress (fixes every platform at once, free).** Run the
+backend on your own PC and expose it with a Cloudflare quick tunnel:
+
+```bash
+pip install -r backend/requirements.txt
+cd backend && uvicorn main:app --host 0.0.0.0 --port 8000
+# second terminal — gives you a public https://…​.trycloudflare.com URL:
+cloudflared tunnel --url http://localhost:8000
+```
+
+Your home IP is residential → YouTube serves the full 4K ladder, Reddit stops
+403-ing, Instagram stories still need cookies (that one is account-gated, not
+IP-gated). Keep the Railway/Render instances for redundancy if you like.
