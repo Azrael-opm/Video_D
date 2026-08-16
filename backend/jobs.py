@@ -863,12 +863,6 @@ def stats_snapshot() -> dict[str, Any]:
     return snap
 
 
-def recent_jobs(limit: int = 100) -> list[dict[str, Any]]:
-    with _LOCK:
-        jobs = sorted(JOBS.values(), key=lambda j: j.created_at, reverse=True)[:limit]
-    return [j.snapshot() for j in jobs]
-
-
 # ---------------------------------------------------------------------------
 def start_cleanup_loop() -> None:
     """Daemon thread that purges expired jobs and uploads every 5 minutes."""

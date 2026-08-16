@@ -79,18 +79,6 @@ def get_upload_from_path(path: str) -> Upload | None:
     return None
 
 
-def delete_upload(upload_id: str) -> None:
-    up = get_upload(upload_id)
-    if not up:
-        return
-    with _ULOCK:
-        UPLOADS.pop(up.id, None)
-    try:
-        Path(up.path).unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
 def purge_expired_uploads() -> int:
     now = time.time()
     with _ULOCK:
