@@ -150,13 +150,15 @@ def request_cancel(job_id: str) -> bool:
 
 def create_upload_recode_job(source_path: str, filename: str,
                              preset: str, target_mb: float,
-                             recode_mode: str = "compress") -> Job:
+                             recode_mode: str = "compress",
+                             client_ip: str | None = None) -> Job:
     """Recode Studio: compress / fix sync / repair an uploaded file."""
     stem = filename.rsplit(".", 1)[0] if "." in filename else filename
     title = re.sub(r"[^\w\-. ]+", "", stem).strip()[:80] or "video"
     job = Job(id=uuid.uuid4().hex, url="upload://" + filename, mode="upload_recode",
               platform="upload", preset=preset, source_path=source_path,
-              target_mb=target_mb, title_hint=title, recode_mode=recode_mode)
+              target_mb=target_mb, title_hint=title, recode_mode=recode_mode,
+              client_ip=client_ip)
     job.title = title
     job.status = "processing"
     with _LOCK:
@@ -497,10 +499,16 @@ def _ffmpeg_with_progress(cmd: list, job: Job, duration: float,
         err_fh.close()
     if proc.returncode != 0:
         try:
-            tail = err_path.read_bytes()[-260:].decode(errors="replace")
+            tail = err_path.read_bytes()[-600:].decode(errors="replace")
         except OSError:
             tail = ""
-        raise RuntimeError(f"FFmpeg failed: {tail.strip()}")
+        rc = proc.returncode
+        note = ""
+        if rc in (137, -9, 247):
+            note = (" | NOTE: exit code 137 = the process was KILLED, almost always out-of-memory "
+                    "on a small host. Try again, use a shorter clip, or raise the service's memory "
+                    "limit (Railway: Settings → memory).")
+        raise RuntimeError(f"FFmpeg failed (exit {rc}){note}: {tail.strip()[-300:]}")
 
 
 def _upload_recode(job: Job) -> Path:
@@ -551,7 +559,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "medium", "-crf", "16", "-fps_mode", "cfr",
+               "-preset", "veryfast", "-crf", "16", "-fps_mode", "cfr",
                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats",
                str(out)]
@@ -567,7 +575,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "medium", "-crf", "18", "-fps_mode", "cfr",
+               "-preset", "veryfast", "-crf", "18", "-fps_mode", "cfr",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
         cmd += ["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr else ["-an"]
         cmd.append(str(out))
@@ -583,7 +591,7 @@ def _upload_recode(job: Job) -> Path:
 
     # Pass 1 also streams progress — no silent 5% wait on long files.
     cmd1 = [config.FFMPEG_PATH, "-y", *common_in,
-            "-c:v", "libx264", "-b:v", f"{vbr}k", "-preset", "medium",
+            "-c:v", "libx264", "-b:v", f"{vbr}k", "-preset", "veryfast",
             "-fps_mode", "cfr", "-pass", "1", "-passlogfile", passlog,
             "-an", "-progress", "pipe:1", "-nostats", "-f", "null", os.devnull]
     _ffmpeg_with_progress(cmd1, job, duration, 5.0, 40.0)
@@ -595,7 +603,7 @@ def _upload_recode(job: Job) -> Path:
             "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
             "-bufsize", f"{int(vbr * 2.6)}k",
-            "-preset", "medium", "-pass", "2", "-passlogfile", passlog,
+            "-preset", "veryfast", "-pass", "2", "-passlogfile", passlog,
             "-fps_mode", "cfr",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
     if abr:

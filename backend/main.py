@@ -311,7 +311,8 @@ def recode_start(request: Request, body: RecodeStartRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     job = jobstore.create_upload_recode_job(up.path, up.filename, body.preset,
-                                            body.target_mb, body.mode)
+                                            body.target_mb, body.mode,
+                                            client_ip=auth.client_ip(request))
     return job.snapshot()
 
 
