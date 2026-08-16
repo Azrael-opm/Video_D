@@ -25,7 +25,8 @@ from yt_dlp.utils import DownloadError
 
 import config
 import db
-from extractors import base_opts, detect_platform, format_selector_for_audio, format_selector_for_height
+from extractors import (base_opts, detect_platform, format_selector_for_audio,
+                        format_selector_for_height, friendly_fetch_error)
 
 STARTED_AT = time.time()
 # Changes on every server boot — the frontend uses it to detect a restart
@@ -253,10 +254,8 @@ def _run(job: Job) -> None:
         _stat_inc("jobs_failed")
         _persist(job)
     except DownloadError as exc:
-        msg = str(exc).splitlines()[0][:400]
-        if "cookies" in msg.lower() or "login" in msg.lower():
-            msg = "This media requires authentication. Configure COOKIES_FILE on the server."
-        job.status, job.error = "error", msg
+        job.status, job.error = "error", friendly_fetch_error(
+            job.platform or "", job.url or "", str(exc))
         _capture_error_log(job)
         _stat_inc("jobs_failed")
         _persist(job)

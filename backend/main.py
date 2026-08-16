@@ -390,6 +390,7 @@ COOKIE_DOMAINS = {
     "facebook.com": ".facebook.com",
     "reddit.com": ".reddit.com",
     "snapchat.com": ".snapchat.com",
+    "youtube.com": ".youtube.com",
 }
 
 
@@ -699,9 +700,15 @@ def admin_settings_reset(request: Request):
 # ---- self-test ------------------------------------------------------------
 _TEST_URLS = {
     "tiktok": "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+    "tiktok_photo": "https://www.tiktok.com/@sigmaking6901/photo/7652474109607054624",
     "pinterest": "https://www.pinterest.com/pin/664281013778109217/",
     "pinterest_image": "https://www.pinterest.com/pin/945263409311092421/",
     "youtube": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    "twitter": "https://x.com/Gist_of_wisdom/status/2064670093829644659",
+    "snapchat": "https://www.snapchat.com/@snapchat/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYZGttemVpd3drAZ5wAjlDAZ5wAgliAAAAAw",
+    "reddit": "https://www.reddit.com/r/BuyItForLife/s/pLI2gLlgCT",
+    "instagram": "https://www.instagram.com/reel/DJxQKbRNgNq/",
+    "facebook": "https://www.facebook.com/FacebookDevelopers/videos/10152454700553553/",
 }
 _selftest_state = {"running": False}
 
@@ -723,7 +730,8 @@ def _run_selftest() -> None:
                 db.health_save(platform, True, "+".join(kinds) or "ok")
             except Exception as exc:  # noqa: BLE001
                 msg = str(exc)[:200]
-                blocked = any(k in msg.lower() for k in ("bot", "login", "cookies", "unauthorized"))
+                blocked = any(k in msg.lower() for k in
+                              ("bot", "login", "cookies", "unauthorized", "datacenter", "blocked"))
                 note = ("IP blocked / login-gated from this server — expected on datacenter IPs"
                         if blocked else msg)
                 db.health_save(platform, not blocked, note)

@@ -312,7 +312,7 @@
             <h2 class="font-semibold">Platform cookies</h2>
             <span id="cookieStatus" class="status-pill bg-zinc-500/15 text-zinc-600 dark:text-zinc-300"><span class="dot"></span>not set</span>
           </div>
-          <p class="text-smoke text-xs mt-1.5 leading-relaxed">Login-gated content (Instagram stories, X, Reddit from datacenter IPs…) needs <b class="text-ink">your</b> logged-in session. Tap a platform’s <b class="text-ink">＋</b>, paste its cookies, save. Each platform keeps its own box. Stored only on this server; survives redeploys. Only use your own account.</p>
+          <p class="text-smoke text-xs mt-1.5 leading-relaxed">Login-gated content (Instagram stories, X, Reddit from datacenter IPs, YouTube bot-checks / age-restricted videos…) needs <b class="text-ink">your</b> logged-in session. Tap a platform’s <b class="text-ink">＋</b>, paste its cookies, save. Each platform keeps its own box. Stored only on this server; survives redeploys. Only use your own account.</p>
           <div id="cookieGrid" class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
           <div id="cookieEditor" class="hidden mt-4 border-t border-hairline pt-4">
             <div class="flex items-center justify-between mb-2">
@@ -871,6 +871,7 @@ $("resetSettingsBtn").addEventListener("click", async ()=>{
 const COOKIE_PLATFORMS = [
   ["instagram.com","Instagram"], ["x.com","X / Twitter"], ["tiktok.com","TikTok"],
   ["facebook.com","Facebook"], ["reddit.com","Reddit"], ["snapchat.com","Snapchat"],
+  ["youtube.com","YouTube"],
 ];
 
 function renderCookieGrid(){

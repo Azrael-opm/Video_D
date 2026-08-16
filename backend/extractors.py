@@ -106,6 +106,51 @@ def _strip_ansi(s: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", s)
 
 
+# Platforms that have a cookie box in Admin → Security (cookies genuinely help here).
+COOKIE_CAPABLE_PLATFORMS = {"tiktok", "instagram", "facebook", "reddit",
+                            "snapchat", "twitter", "youtube"}
+
+
+def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
+    """Turn a raw extractor failure into an accurate, platform-aware message.
+
+    Cookies are only suggested when the failure is actually auth-related *and*
+    the platform has a cookie box in Admin → Security — public content on
+    cookie-free platforms must never blame cookies."""
+    raw = _strip_ansi(raw)
+    low = raw.lower()
+    if platform == "instagram" and "/stories/" in url:
+        return ("Instagram stories ALWAYS require a logged-in session, even for public "
+                "accounts — that's Instagram's rule, not a bug. Paste your own Instagram "
+                "cookies in Admin → Security (or set COOKIES_FILE) and stories you can see "
+                "will download.")
+    if platform == "youtube" and ("bot" in low or "sign in" in low):
+        return ("YouTube is bot-checking this server's IP (normal for datacenter hosts) — "
+                "the video itself is public and fine. Wait a minute and retry; if it "
+                "persists, paste YouTube cookies in Admin → Security to skip the check.")
+    if platform == "youtube" and "age" in low and ("restrict" in low or "confirm" in low):
+        return ("This YouTube video is age-restricted — YouTube only plays it for "
+                "signed-in accounts. Add YouTube cookies in Admin → Security to unlock it.")
+    if platform == "instagram":
+        return ("Instagram didn't serve this post anonymously (it login-gates some posts "
+                "and most datacenter IPs). Public posts usually work from home networks; "
+                "if you can view it logged-in, add your Instagram cookies in Admin → "
+                "Security.")
+    if platform == "reddit" and ("403" in raw or "blocked" in low):
+        return ("Reddit blocks datacenter IPs outright. Add your Reddit cookies in Admin "
+                "→ Security, or run NyxDownloader from a home/residential network (your "
+                "PC + Cloudflare Tunnel works great).")
+    loginish = any(k in low for k in ("login", "sign in", "cookies", "private"))
+    if loginish:
+        if platform in COOKIE_CAPABLE_PLATFORMS:
+            return ("This media is private or requires a login to access. Paste your "
+                    "cookies in Admin → Security (or set COOKIES_FILE) to unlock it.")
+        return "This media is private or requires a login to access."
+    if "unsupported url" in low:
+        return "This URL isn't supported. Check that it's a direct link to the post/video."
+    return f"Couldn't fetch this media: {raw.splitlines()[0][:300]}"
+
+
 def _walk_video_lists(node: Any):
     """Yield every `video_list` dict found anywhere in a nested structure
     (Pinterest story pins nest media assets deep inside pages/blocks)."""
@@ -541,29 +586,7 @@ def analyze(url: str) -> dict[str, Any]:
             if info is None:
                 info = _og_fallback(url, platform)
             if info is None:
-                msg = _strip_ansi(str(exc))
-                if platform == "instagram" and "/stories/" in url:
-                    # Stories are login-gated for everyone, anonymously — always.
-                    raise ValueError(
-                        "Instagram stories ALWAYS require a logged-in session, even for "
-                        "public accounts — that's Instagram's rule, not a bug. Paste your "
-                        "own Instagram cookies in Admin → Security (or set COOKIES_FILE) "
-                        "and stories you can see will download."
-                    ) from exc
-                if "login" in msg.lower() or "cookies" in msg.lower() or "private" in msg.lower():
-                    raise ValueError(
-                        "This media is private or requires a login to access. "
-                        "Paste your cookies in Admin → Security (or set COOKIES_FILE) to unlock it."
-                    ) from exc
-                if platform == "reddit" and ("403" in msg or "blocked" in msg.lower()):
-                    raise ValueError(
-                        "Reddit blocks datacenter IPs outright. Add your Reddit cookies in "
-                        "Admin → Security, or run NyxDownloader from a home/residential "
-                        "network (your PC + Cloudflare Tunnel works great)."
-                    ) from exc
-                if "unsupported url" in msg.lower():
-                    raise ValueError("This URL isn't supported. Check that it's a direct link to the post/video.") from exc
-                raise ValueError(f"Couldn't fetch this media: {msg.splitlines()[0][:300]}") from exc
+                raise ValueError(friendly_fetch_error(platform, url, str(exc))) from exc
 
     if not info:
         raise ValueError("No media information was returned for this URL.")
