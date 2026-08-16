@@ -642,6 +642,7 @@ async function renderStats(s){
     ["Preview limit", c.preview_rate_limit], ["Recode limit", c.recode_rate_limit],
     ["Upload limit", c.upload_rate_limit], ["Job TTL", `${Math.round(c.job_ttl_seconds/60)} min`],
     ["Max download", `${c.max_download_mb} MB`], ["Max upload", `${c.max_upload_mb} MB`],
+    ["Build", c.build || "—"],
     ["Cookies file", c.cookies_configured?"✔ configured":"— not set"],
   ].map(([k,v])=>`<div class="flex justify-between"><dt>${esc(k)}</dt><dd class="text-ink font-semibold">${esc(v)}</dd></div>`).join("");
 

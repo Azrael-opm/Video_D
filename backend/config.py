@@ -9,6 +9,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+# Bumped on every deploy-relevant change; shown in /health and Admin → Server
+# so you can verify at a glance which build each host is actually running.
+BUILD_TAG = os.getenv("BUILD_TAG", "2026.08.16-3")
+
 # ---------------------------------------------------------------------------
 # FFmpeg — required for merging bestvideo+bestaudio streams and for
 # extracting/convertng audio (MP3 / M4A). Resolution order:

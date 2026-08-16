@@ -170,7 +170,8 @@ class TotpConfirm(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "ffmpeg": bool(config.FFMPEG_PATH),
-            "version": "2.0.0", "ytdlp": yt_dlp.version.__version__}
+            "version": "2.0.0", "build": config.BUILD_TAG,
+            "ytdlp": yt_dlp.version.__version__}
 
 
 @app.post("/api/analyze")
@@ -550,6 +551,7 @@ def admin_stats(request: Request):
         **{k: settings[k] for k in db.SETTING_DEFAULTS},
         "max_concurrent_downloads": config.MAX_CONCURRENT_DOWNLOADS,
         "ffmpeg": bool(config.FFMPEG_PATH),
+        "build": config.BUILD_TAG,
         "cookies_configured": bool(config.COOKIES_FILE),
         "ytdlp_version": yt_dlp.version.__version__,
         "ytdlp_age_days": _ytdlp_age_days(),

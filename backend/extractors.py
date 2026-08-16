@@ -159,8 +159,10 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
 # others (tv_embedded, android) usually still answer from datacenter IPs.
 # Merged sets matter: a single gated client silently degrades quality (android
 # alone = 360p), while a merged set returns every rendition the IP can reach.
-YT_PRIMARY_CLIENTS = "tv,web,android,mweb"
-YT_ALT_CLIENTS = ["tv,mweb,android", "tv_embedded,android", "android"]
+# Gating flips minute-by-minute, so the primary set carries every client that
+# has ever answered anonymously (tv_embedded is the current 4K workhorse).
+YT_PRIMARY_CLIENTS = "tv,web,android,mweb,tv_embedded,ios"
+YT_ALT_CLIENTS = ["tv_embedded,android", "tv,mweb,android", "android"]
 
 
 def yt_gated_error(raw: str) -> bool:
@@ -186,6 +188,34 @@ def youtube_client_ladder(url: str) -> Optional[dict]:
         except Exception:
             continue
     return None
+
+
+def _youtube_best_quality(info: dict, url: str) -> dict:
+    """YouTube silently degrades to android's 360p when richer clients are
+    gated — no error raised, just a poor format list. Escalate through the
+    alternate merged sets and keep the best result."""
+    def grade(d: dict) -> tuple[int, int]:
+        hs = [f.get("height") or 0 for f in d.get("formats") or []]
+        return (max(hs, default=0), len(hs))
+    best, best_g = info, grade(info)
+    if best_g[0] > 360:
+        return best
+    for clients in YT_ALT_CLIENTS:
+        try:
+            opts = base_opts()
+            opts["extractor_args"] = {**opts.get("extractor_args", {}),
+                                      "youtube": {"player_client": [clients]}}
+            with YoutubeDL(opts) as ydl:
+                alt = ydl.extract_info(normalize_media_url(url), download=False)
+        except Exception:
+            continue
+        if alt:
+            g = grade(alt)
+            if g > best_g:
+                best, best_g = alt, g
+        if best_g[0] > 360:
+            break
+    return best
 
 
 def _walk_video_lists(node: Any):
@@ -641,6 +671,11 @@ def analyze(url: str) -> dict[str, Any]:
 
     if not info:
         raise ValueError("No media information was returned for this URL.")
+
+    # YouTube can "succeed" with only android's 360p when richer clients are
+    # gated — escalate for quality before building the options list.
+    if platform == "youtube":
+        info = _youtube_best_quality(info, url)
 
     # If the extractor still hands us a playlist, take the first entry.
     if info.get("_type") == "playlist":
