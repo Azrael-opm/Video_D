@@ -864,11 +864,15 @@ async function renderSecurity(){
   const [admins,sessions,audit,me,ck]=await Promise.all([
     api("/api/admin/admins"), api("/api/admin/sessions"), api("/api/admin/audit"),
     api("/api/admin/me"), api("/api/admin/cookies").catch(()=>null)]);
+  state.cookieDomains = (ck && ck.domains) || {};
+  const n=Object.keys(state.cookieDomains).length;
   const pill=$("cookieStatus");
-  if(ck&&ck.configured){ pill.className="status-pill bg-emerald-500/15 text-emerald-600 dark:text-emerald-300";
-    pill.innerHTML='<span class="dot"></span>set · '+ck.source; }
+  if(n>0){ pill.className="status-pill bg-emerald-500/15 text-emerald-600 dark:text-emerald-300";
+    pill.innerHTML=`<span class="dot"></span>${n} platform${n>1?"s":""} set`; }
   else { pill.className="status-pill bg-zinc-500/15 text-zinc-600 dark:text-zinc-300";
     pill.innerHTML='<span class="dot"></span>not set'; }
+  // Load the selected platform's saved cookies into its own box (if any).
+  $("cookiesBox").value = state.cookieDomains[$("cookieDomain").value] || "";
   $("meName").textContent=me.username;
   $("meAvatar").textContent=(me.username||"A")[0];
   $("meSub").textContent=me.totp_enabled?"2FA enabled":"session active";
@@ -933,8 +937,14 @@ $("saveCookiesBtn").addEventListener("click", async ()=>{
   }catch(e){ toast(e.message); }
 });
 $("delCookiesBtn").addEventListener("click", async ()=>{
-  if(!confirm("Remove stored platform cookies?"))return;
-  await api("/api/admin/cookies",{method:"DELETE"}); toast("Cookies removed","warn"); renderSecurity();
+  const dom=$("cookieDomain").value;
+  if(!confirm(`Remove stored cookies for ${dom}? Other platforms are kept.`))return;
+  await api(`/api/admin/cookies?domain=${encodeURIComponent(dom)}`,{method:"DELETE"});
+  toast(`Cookies removed for ${dom}`,"warn"); renderSecurity();
+});
+$("cookieDomain").addEventListener("change", ()=>{
+  // Each platform keeps its own box: show this platform's saved text (or blank).
+  $("cookiesBox").value = (state.cookieDomains && state.cookieDomains[$("cookieDomain").value]) || "";
 });
 
 /* ---------- maintenance ---------- */

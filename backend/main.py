@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import secrets
@@ -123,6 +124,7 @@ class DownloadRequest(BaseModel):
     height: Optional[int] = Field(None, ge=144, le=2160)
     audio_format: Optional[Literal["mp3", "m4a"]] = None
     image_url: Optional[str] = Field(None, max_length=2000)
+    direct_url: Optional[str] = Field(None, max_length=4000)
     title: Optional[str] = Field(None, max_length=300)
 
 
@@ -200,7 +202,8 @@ def download(request: Request, body: DownloadRequest):
 
     job = jobstore.create_job(url, body.mode, body.height, body.audio_format,
                               image_url=body.image_url, title_hint=body.title,
-                              client_ip=auth.client_ip(request))
+                              client_ip=auth.client_ip(request),
+                              direct_url=body.direct_url)
     return job.snapshot()
 
 
@@ -336,18 +339,48 @@ def recode_page():
 import base64 as _b64
 
 
+def _cookies_map() -> dict[str, str]:
+    """Per-platform raw cookie texts, stored as one base64 JSON blob."""
+    raw = db.get_setting("cookies_map_b64")
+    if not raw:
+        # migrate the old single-domain row if present
+        old = db.get_setting("cookies_b64")
+        if old:
+            try:
+                text = _b64.b64decode(old).decode()
+                dom = db.get_setting("cookies_domain") or "instagram.com"
+                return {dom: text}
+            except Exception:  # noqa: BLE001
+                return {}
+        return {}
+    try:
+        return json.loads(_b64.b64decode(raw).decode())
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _save_cookies_map(cmap: dict[str, str]) -> None:
+    db.set_setting("cookies_map_b64",
+                   _b64.b64encode(json.dumps(cmap).encode()).decode())
+    # rebuild the combined cookies.txt from every stored platform
+    lines = ["# Netscape HTTP Cookie File"]
+    for dom, text in cmap.items():
+        converted = _to_netscape(text, dom)
+        lines.extend(l for l in converted.splitlines()
+                     if l and not l.startswith("#"))
+    config.COOKIES_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    config.COOKIES_FILE = str(config.COOKIES_PATH)
+    db._settings_cache = (0.0, {})
+
+
 def _restore_cookies() -> None:
     """On ephemeral hosts the cookies file dies with the container; restore it
-    from the (base64) settings row so login-gated platforms keep working."""
+    from the stored per-platform map so login-gated platforms keep working."""
     if config.COOKIES_FILE and Path(config.COOKIES_FILE).exists():
         return
-    raw = db.get_setting("cookies_b64")
-    if raw:
-        try:
-            config.COOKIES_PATH.write_bytes(_b64.b64decode(raw))
-            config.COOKIES_FILE = str(config.COOKIES_PATH)
-        except Exception:  # noqa: BLE001
-            pass
+    cmap = _cookies_map()
+    if cmap:
+        _save_cookies_map(cmap)
 
 
 COOKIE_DOMAINS = {
@@ -388,37 +421,51 @@ class CookiesPayload(BaseModel):
 @app.get("/api/admin/cookies")
 def admin_cookies_status(request: Request):
     _actor(request)
+    cmap = _cookies_map()
     return {"configured": bool(config.COOKIES_FILE),
+            "domains": cmap,
+            "count": len(cmap),
             "source": "env" if os.getenv("COOKIES_FILE")
-                      else ("dashboard" if config.COOKIES_FILE else "none"),
-            "domain": db.get_setting("cookies_domain") or ""}
+                      else ("dashboard" if config.COOKIES_FILE else "none")}
 
 
 @app.post("/api/admin/cookies")
 def admin_cookies_set(request: Request, body: CookiesPayload):
     actor = _actor(request)
-    content = _to_netscape(body.content, body.domain)
-    config.COOKIES_PATH.write_text(content, encoding="utf-8")
-    config.COOKIES_FILE = str(config.COOKIES_PATH)
-    db.set_setting("cookies_b64", _b64.b64encode(content.encode()).decode())
-    db.set_setting("cookies_domain", body.domain)
+    cmap = _cookies_map()
+    cmap[body.domain] = body.content
+    _save_cookies_map(cmap)
     db.audit(actor, "cookies_set", f"{body.domain} cookies stored (survive redeploys)")
-    return {"ok": True}
+    return {"ok": True, "count": len(cmap)}
 
 
 @app.delete("/api/admin/cookies")
-def admin_cookies_delete(request: Request):
+def admin_cookies_delete(request: Request, domain: str | None = None):
+    """Remove one platform's cookies (or all when no domain is given)."""
     actor = _actor(request)
+    cmap = _cookies_map()
+    if domain:
+        cmap.pop(domain, None)
+        if cmap:
+            _save_cookies_map(cmap)
+        else:
+            _clear_all_cookies()
+    else:
+        _clear_all_cookies()
+    db.audit(actor, "cookies_removed", domain or "all platforms")
+    return {"ok": True, "count": len(_cookies_map())}
+
+
+def _clear_all_cookies() -> None:
     if not os.getenv("COOKIES_FILE"):
         config.COOKIES_FILE = None
     try:
         config.COOKIES_PATH.unlink(missing_ok=True)
     except OSError:
         pass
-    db.q("DELETE FROM settings WHERE key='cookies_b64'", (), fetch=False)
+    db.q("DELETE FROM settings WHERE key IN ('cookies_map_b64','cookies_b64','cookies_domain')",
+         (), fetch=False)
     db._settings_cache = (0.0, {})
-    db.audit(actor, "cookies_removed")
-    return {"ok": True}
 
 
 # ===========================================================================

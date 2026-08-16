@@ -83,6 +83,7 @@ class Job:
     height: Optional[int] = None
     audio_format: Optional[str] = None
     image_url: Optional[str] = None  # image mode / slideshow composite
+    direct_url: Optional[str] = None  # direct .mp4 (X syndication fallback)
     title_hint: Optional[str] = None
     platform: str = "generic"
     preset: Optional[str] = None     # recode preset key
@@ -121,11 +122,12 @@ _JUNK_EXTS = {".part", ".ytdl", ".tmp", ".log"}
 def create_job(url: str, mode: str, height: int | None, audio_format: str | None,
                image_url: str | None = None, title_hint: str | None = None,
                preset: str | None = None, source_path: str | None = None,
-               client_ip: str | None = None) -> Job:
+               client_ip: str | None = None, direct_url: str | None = None) -> Job:
     job = Job(id=uuid.uuid4().hex, url=url, mode=mode, height=height,
               audio_format=audio_format, image_url=image_url, title_hint=title_hint,
               platform=detect_platform(url) if url else "local",
-              preset=preset, source_path=source_path, client_ip=client_ip)
+              preset=preset, source_path=source_path, client_ip=client_ip,
+              direct_url=direct_url)
     if title_hint:
         job.title = title_hint
     with _LOCK:
@@ -271,8 +273,11 @@ def _check_cancel(job: Job) -> None:
 
 
 def _download(job: Job) -> None:
+    # ---- direct .mp4 URL (X/Twitter syndication fallback) ------------------
+    if job.direct_url:
+        path = _download_direct(job)
     # ---- Recode Studio: uploaded file → size-targeted two-pass encode -----
-    if job.mode == "upload_recode":
+    elif job.mode == "upload_recode":
         path = _upload_recode(job)
     # ---- direct image download (no yt-dlp needed) -------------------------
     elif job.mode == "image":
@@ -390,6 +395,41 @@ def _download_image(job: Job) -> Path:
                     if total:
                         job.progress = min(99.0, done / total * 100)
     job.progress = 99.0
+    return dest
+
+
+def _download_direct(job: Job) -> Path:
+    """Download a direct .mp4 URL (X/Twitter syndication CDN). In audio mode
+    the mp4 is downloaded then the audio track is extracted via FFmpeg."""
+    import httpx
+    from extractors import HTTP_HEADERS
+
+    job.status = "downloading"
+    dest = config.TMP_DIR / f"{job.id}.mp4"
+    with httpx.Client(headers=dict(HTTP_HEADERS), timeout=60,
+                      follow_redirects=True) as client:
+        with client.stream("GET", job.direct_url) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length") or 0)
+            done = 0
+            with open(dest, "wb") as fh:
+                for chunk in resp.iter_bytes(65536):
+                    fh.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        job.progress = min(99.0, done / total * 100)
+
+    if job.mode == "audio":
+        job.status = "processing"
+        ext = "mp3" if (job.audio_format or "mp3") == "mp3" else "m4a"
+        out = config.TMP_DIR / f"{job.id}.{ext}"
+        cmd = [config.FFMPEG_PATH, "-y", "-i", str(dest), "-vn"]
+        cmd += (["-c:a", "libmp3lame", "-q:a", "0"] if ext == "mp3"
+                else ["-c:a", "aac", "-b:a", "192k"])
+        cmd.append(str(out))
+        subprocess.run(cmd, capture_output=True, check=True, timeout=300)
+        dest.unlink(missing_ok=True)
+        return out
     return dest
 
 

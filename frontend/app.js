@@ -210,7 +210,7 @@ async function analyze() {
     const meta = await api("/api/analyze", { url });
     state.meta = meta;
     renderPreview();
-    maybeLoadInlinePreview();
+    setupPreview();
   } catch (err) {
     showToast(err.message);
   } finally {
@@ -284,17 +284,26 @@ function fillQualitySelect() {
 }
 
 // --------------------------------------------------------------
-// Inline 480p preview — tap "Play preview", never autoplays.
+// Inline 480p preview — NOTHING is fetched until the user taps
+// "Play preview". Only then does the preview job start; when it's
+// ready the player mounts and plays. Never autoplays, never preloads.
 // Available everywhere EXCEPT YouTube, and only for real video posts.
 // --------------------------------------------------------------
-function maybeLoadInlinePreview() {
+function setPlayLabel(t){ const l=$("playBtnLabel"); if(l) l.textContent=t; }
+
+function setupPreview() {
   const m = state.meta;
-  if (!m || m.platform === "youtube" || !m.video_options.length) return;
-  const url = m.webpage_url || m.url;
-  els.previewBadge.classList.remove("hidden");
-  api("/api/preview", { url })
-    .then((job) => pollPreview(job.id))
-    .catch(() => els.previewBadge.classList.add("hidden"));
+  state.previewUrl = null;
+  state.previewEligible = !!(m && m.platform !== "youtube" && m.video_options.length);
+  if (state.previewEligible) {
+    els.playBtn.disabled = false;
+    setPlayLabel("Play preview");
+    els.playBtn.classList.remove("hidden");
+    els.playBtn.classList.add("flex");
+  } else {
+    els.playBtn.classList.add("hidden");
+    els.playBtn.classList.remove("flex");
+  }
 }
 
 function pollPreview(jobId) {
@@ -303,31 +312,44 @@ function pollPreview(jobId) {
     try {
       const job = await api(`/api/jobs/${jobId}?t=${Date.now()}`);
       if (job.status === "done") {
-        els.previewBadge.classList.add("hidden");
         state.previewUrl = job.download_url;
         els.durBadge.classList.add("hidden");         // player shows duration
-        els.playBtn.classList.remove("hidden");
-        els.playBtn.classList.add("flex");
+        const video = mountPlayer(job.download_url);
+        if (video && video.tagName === "VIDEO") video.play().catch(() => {});
         return;
       }
       if (job.status === "error") {
-        els.previewBadge.classList.add("hidden");
+        els.playBtn.disabled = false;
+        setPlayLabel("Play preview");
+        toast("Preview unavailable: " + (job.error || "unknown error"));
         return;
       }
       state.previewTimer = setTimeout(tick, 800);
-    } catch {
-      els.previewBadge.classList.add("hidden");
+    } catch (e) {
+      els.playBtn.disabled = false;
+      setPlayLabel("Play preview");
     }
   };
   state.previewTimer = setTimeout(tick, 600);
 }
 
 els.playBtn.addEventListener("click", () => {
-  if (!state.previewUrl) return;
-  els.playBtn.classList.add("hidden");
-  els.playBtn.classList.remove("flex");
-  const video = mountPlayer(state.previewUrl);
-  if (video && video.tagName === "VIDEO") video.play().catch(() => {});
+  if (!state.previewEligible) return;
+  if (state.previewUrl) {                       // already loaded → just play
+    const video = mountPlayer(state.previewUrl);
+    if (video && video.tagName === "VIDEO") video.play().catch(() => {});
+    return;
+  }
+  els.playBtn.disabled = true;
+  setPlayLabel("Loading preview…");
+  const url = state.meta.webpage_url || state.meta.url;
+  api("/api/preview", { url })
+    .then((job) => pollPreview(job.id))
+    .catch((e) => {
+      els.playBtn.disabled = false;
+      setPlayLabel("Play preview");
+      toast("Preview unavailable: " + e.message);
+    });
 });
 
 function mountPlayer(fileUrl, filename) {
@@ -374,9 +396,11 @@ async function startDownload() {
   } else if (state.mode === "video") {
     const chosen = m.video_options[els.select.value] || m.video_options[0];
     body.height = chosen.height;
+    if (chosen.direct_url) body.direct_url = chosen.direct_url;   // X syndication
   } else {
     const chosen = m.audio_options[els.select.value] || m.audio_options[0];
     body.audio_format = chosen.audio_format;
+    if (chosen.direct_url) body.direct_url = chosen.direct_url;   // X syndication
   }
 
   state.downloading = true;

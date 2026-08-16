@@ -513,6 +513,24 @@ def analyze(url: str) -> dict[str, Any]:
             with YoutubeDL(base_opts()) as ydl:
                 info = ydl.extract_info(normalize_media_url(url), download=False)
         except (DownloadError, ExtractorError) as exc:
+            # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
+            # public syndication CDN is not — return direct .mp4 variants.
+            if platform == "twitter":
+                syn = _twitter_syndication(url)
+                if syn and (syn["video_options"] or syn["image_options"]):
+                    vo, io_, ao = syn["video_options"], syn["image_options"], syn["audio_options"]
+                    if vo:
+                        io_ = []
+                    meta = PLATFORM_META.get(platform, PLATFORM_META["generic"])
+                    return {
+                        "url": url, "platform": platform,
+                        "platform_name": meta["name"], "platform_color": meta["color"],
+                        "title": syn["title"], "uploader": syn["uploader"],
+                        "duration": syn["duration"], "thumbnail": syn["thumbnail"],
+                        "webpage_url": url,
+                        "content_type": "video" if vo else ("image" if io_ else "audio"),
+                        "video_options": vo, "audio_options": ao, "image_options": io_,
+                    }
             # Image posts make several extractors bail ("No video formats found",
             # "There is no video in this post", …). Layered fallbacks recover the
             # images anyway: platform-native APIs first, then OpenGraph metadata.
@@ -608,6 +626,18 @@ def analyze(url: str) -> dict[str, Any]:
         if og:
             image_options = build_image_options(og)
 
+    # X/Twitter: yt-dlp is frequently blocked from datacenter IPs, but the
+    # public syndication CDN is not. Fill in direct .mp4 variants + photos.
+    syn_meta: dict = {}
+    if platform == "twitter" and not video_options:
+        syn = _twitter_syndication(url)
+        if syn:
+            video_options = syn["video_options"]
+            audio_options = audio_options or syn["audio_options"]
+            if not image_options:
+                image_options = syn["image_options"]
+            syn_meta = syn
+
     # Photo options are for image posts only — a fetched video post should
     # not offer cover-art photo downloads.
     if video_options:
@@ -624,10 +654,10 @@ def analyze(url: str) -> dict[str, Any]:
         "platform": platform,
         "platform_name": meta["name"],
         "platform_color": meta["color"],
-        "title": info.get("title") or "Untitled media",
-        "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id"),
-        "duration": duration,
-        "thumbnail": info.get("thumbnail"),
+        "title": syn_meta.get("title") or info.get("title") or "Untitled media",
+        "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id") or syn_meta.get("uploader"),
+        "duration": duration or syn_meta.get("duration") or 0,
+        "thumbnail": info.get("thumbnail") or syn_meta.get("thumbnail"),
         "webpage_url": info.get("webpage_url") or url,
         "content_type": content_type,
         "video_options": video_options,
@@ -759,6 +789,85 @@ def build_image_options(info: dict) -> list[dict]:
         if len(options) >= 12:      # room for full carousels, not just covers
             break
     return options
+
+
+def _x_token(tweet_id: str) -> int:
+    """Public token for the syndication CDN (anonymous, no cookies)."""
+    r = 0
+    for ch in str(tweet_id):
+        r = (r * 31 + ord(ch)) % 1_000_000_007
+    return r
+
+
+def _twitter_syndication(url: str) -> Optional[dict]:
+    """Anonymous X/Twitter fallback via the public syndication CDN.
+
+    yt-dlp is often blocked from datacenter IPs, but this CDN is not, and it
+    returns direct .mp4 variants (muxed with audio) plus photos. Returns
+    video/image/audio options carrying `direct_url` for direct download.
+    """
+    m = re.search(r"status/(\d+)", url)
+    if not m:
+        return None
+    tid = m.group(1)
+    api = (f"https://cdn.syndication.twimg.com/tweet-result?id={tid}"
+           f"&lang=en&token={_x_token(tid)}")
+    try:
+        with httpx.Client(headers=HTTP_HEADERS, timeout=15, follow_redirects=True) as c:
+            data = c.get(api).json()
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    video = data.get("video") or {}
+    videos = []
+    seen_h = set()
+    for var in (video.get("variants") or []):
+        src = var.get("src") or ""
+        if not src.endswith(".mp4"):
+            continue
+        mm = re.search(r"/(\d{2,5})x(\d{2,5})/", src)
+        h = int(mm.group(2)) if mm else 0
+        if h in seen_h:
+            continue
+        seen_h.add(h)
+        videos.append({
+            "kind": "video", "height": h,
+            "label": f"{h}p" if h else "Video",
+            "filesize": None, "is_estimate": False,
+            "direct_url": src,
+        })
+    videos.sort(key=lambda v: v["height"], reverse=True)
+
+    images = []
+    for p in (data.get("photos") or []):
+        u = p.get("url") or p.get("media_url_https")
+        if u:
+            images.append({"kind": "image", "url": u, "width": p.get("width"),
+                           "height": p.get("height"),
+                           "label": f"{p.get('width')}×{p.get('height')}" if p.get("width") else "Image",
+                           "filesize": None})
+
+    best_src = videos[0]["direct_url"] if videos else None
+    audio = []
+    if best_src:
+        audio = [
+            {"kind": "audio", "audio_format": "mp3", "label": "MP3 — extract from video",
+             "filesize": None, "direct_url": best_src},
+            {"kind": "audio", "audio_format": "m4a", "label": "M4A — extract from video",
+             "filesize": None, "direct_url": best_src},
+        ]
+
+    if not videos and not images:
+        return None
+    return {
+        "title": (data.get("text") or "X post")[:120],
+        "uploader": ((data.get("user") or {}).get("name")),
+        "thumbnail": video.get("poster") or (images[0]["url"] if images else None),
+        "duration": (video.get("durationMs") or 0) / 1000,
+        "video_options": videos, "image_options": images, "audio_options": audio,
+    }
 
 
 def _has_audio(f: dict) -> bool:
