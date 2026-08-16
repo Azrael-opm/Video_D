@@ -264,15 +264,10 @@ session per platform (Admin → Security, or `COOKIES_TEXT`/`COOKIES_B64` env on
 ephemeral hosts). Requests then arrive as *you*, bypassing the anonymous wall.
 
 **Fix 2 — residential egress (fixes every platform at once, free).** Run the
-backend on your own PC and expose it with a Cloudflare quick tunnel:
-
-```bash
-pip install -r backend/requirements.txt
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8000
-# second terminal — gives you a public https://…​.trycloudflare.com URL:
-cloudflared tunnel --url http://localhost:8000
-```
-
-Your home IP is residential → YouTube serves the full 4K ladder, Reddit stops
-403-ing, Instagram stories still need cookies (that one is account-gated, not
-IP-gated). Keep the Railway/Render instances for redundancy if you like.
+backend on your own PC and expose it with a Cloudflare quick tunnel. On
+Windows it's two double-clicks: install cloudflared once
+(`winget install Cloudflare.cloudflared`), then run `run-home.bat` — it installs
+deps, starts the backend and the tunnel, and prints a public
+`https://….trycloudflare.com` URL to share. Your home IP is residential →
+YouTube serves the full 4K ladder, Reddit stops 403-ing; only Instagram stories
+stay account-gated (cookies unlock those). Keep Railway/Render as fallbacks.

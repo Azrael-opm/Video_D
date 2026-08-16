@@ -120,29 +120,24 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
     raw = _strip_ansi(raw)
     low = raw.lower()
     if platform == "instagram" and "/stories/" in url:
-        return ("Instagram stories ALWAYS require a logged-in session, even for public "
-                "accounts — that's Instagram's rule, not a bug. Paste your own Instagram "
-                "cookies in Admin → Security (or set COOKIES_FILE) and stories you can see "
-                "will download.")
+        return ("Instagram stories are only viewable while logged in — that's Instagram's "
+                "rule for everyone, not a bug. (Operators: Instagram cookies lift this — "
+                "Admin → Security or COOKIES_FILE.)")
     if platform == "youtube" and ("bot" in low or "sign in" in low):
-        return ("YouTube is bot-checking this server's IP (normal for datacenter hosts) — "
-                "the video itself is public and fine. We already retried through alternate "
-                "player clients; on hosts where every client is gated (Render's IP pool) "
-                "the only reliable bypass is a logged-in session: paste YouTube cookies in "
-                "Admin → Security, or set the COOKIES_TEXT env var so it survives restarts "
-                "on ephemeral hosts.")
+        return ("YouTube is bot-checking this server's IP — a temporary host-side gate, "
+                "the video itself is public and fine. Try again in a little while. "
+                "(Operators: YouTube cookies lift this — Admin → Security or COOKIES_TEXT.)")
     if platform == "youtube" and "age" in low and ("restrict" in low or "confirm" in low):
-        return ("This YouTube video is age-restricted — YouTube only plays it for "
-                "signed-in accounts. Add YouTube cookies in Admin → Security to unlock it.")
+        return ("This YouTube video is age-restricted — YouTube only serves it to "
+                "signed-in accounts. (Operators: YouTube cookies unlock it — "
+                "Admin → Security.)")
     if platform == "instagram":
-        return ("Instagram didn't serve this post anonymously (it login-gates some posts "
-                "and most datacenter IPs). Public posts usually work from home networks; "
-                "if you can view it logged-in, add your Instagram cookies in Admin → "
-                "Security.")
+        return ("Instagram didn't serve this post anonymously (some posts and most server "
+                "networks get login-gated). (Operators: Instagram cookies lift this — "
+                "Admin → Security.)")
     if platform == "reddit" and ("403" in raw or "blocked" in low):
-        return ("Reddit blocks datacenter IPs outright. Add your Reddit cookies in Admin "
-                "→ Security, or run NyxDownloader from a home/residential network (your "
-                "PC + Cloudflare Tunnel works great).")
+        return ("Reddit is blocking this server's network outright (datacenter IPs). "
+                "(Operators: Reddit cookies or residential hosting lift this.)")
     loginish = any(k in low for k in ("login", "sign in", "cookies", "private"))
     if loginish:
         if platform in COOKIE_CAPABLE_PLATFORMS:
