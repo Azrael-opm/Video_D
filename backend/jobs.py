@@ -33,6 +33,22 @@ STARTED_AT = time.time()
 BOOT_ID = uuid.uuid4().hex[:12]
 
 
+def _encode_threads() -> str:
+    """1 thread on tiny hosts (Render free = 512 MB): decoder frame buffers
+    scale with resolution × threads, so 4K HEVC would OOM a small box."""
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemTotal:"):
+                kb = int(line.split()[1])
+                return "1" if kb < 1_000_000 else "2"
+    except OSError:
+        pass
+    return "2"
+
+
+ENC_THREADS = _encode_threads()
+
+
 class JobCancelled(Exception):
     """Raised inside hooks to abort a job the admin cancelled."""
 
