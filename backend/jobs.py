@@ -26,7 +26,8 @@ from yt_dlp.utils import DownloadError
 import config
 import db
 from extractors import (base_opts, detect_platform, format_selector_for_audio,
-                        format_selector_for_height, friendly_fetch_error)
+                        format_selector_for_height, friendly_fetch_error,
+                        yt_gated_error, YT_ALT_CLIENTS)
 
 STARTED_AT = time.time()
 # Changes on every server boot — the frontend uses it to detect a restart
@@ -343,8 +344,26 @@ def _download_with_ytdlp(job: Job) -> Path:
         opts["format"] = format_selector_for_height(job.height or 1080)
 
     job.status = "downloading"
-    with YoutubeDL(opts) as ydl:
-        ydl.download([job.url])
+    # YouTube bot-checks gate some player clients but not others — when a
+    # gated error hits, transparently retry the download via alternates.
+    clients = [None] + (YT_ALT_CLIENTS if job.platform == "youtube" else [])
+    last_exc: Optional[DownloadError] = None
+    for client in clients:
+        o = opts
+        if client:
+            o = {**opts, "extractor_args": {**opts.get("extractor_args", {}),
+                                            "youtube": {"player_client": [client]}}}
+        try:
+            with YoutubeDL(o) as ydl:
+                ydl.download([job.url])
+            last_exc = None
+            break
+        except DownloadError as exc:
+            if job.platform != "youtube" or not yt_gated_error(str(exc)):
+                raise
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
 
     path = _find_output(job.id)
     if path is None:

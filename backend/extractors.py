@@ -126,8 +126,9 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
                 "will download.")
     if platform == "youtube" and ("bot" in low or "sign in" in low):
         return ("YouTube is bot-checking this server's IP (normal for datacenter hosts) — "
-                "the video itself is public and fine. Wait a minute and retry; if it "
-                "persists, paste YouTube cookies in Admin → Security to skip the check.")
+                "the video itself is public and fine. We already retried through alternate "
+                "player clients; wait a minute and try again, or paste YouTube cookies in "
+                "Admin → Security to skip the check for good.")
     if platform == "youtube" and "age" in low and ("restrict" in low or "confirm" in low):
         return ("This YouTube video is age-restricted — YouTube only plays it for "
                 "signed-in accounts. Add YouTube cookies in Admin → Security to unlock it.")
@@ -149,6 +150,37 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
     if "unsupported url" in low:
         return "This URL isn't supported. Check that it's a direct link to the post/video."
     return f"Couldn't fetch this media: {raw.splitlines()[0][:300]}"
+
+
+# Alternate YouTube player clients, tried in order when the default client hits
+# YouTube's bot-check. The check hits some clients (web/mweb hardest) while
+# others (tv_embedded, android) usually still answer from datacenter IPs.
+YT_ALT_CLIENTS = ["tv_embedded", "android", "ios", "mweb"]
+
+
+def yt_gated_error(raw: str) -> bool:
+    """True when a yt-dlp YouTube failure looks like IP/client gating (bot
+    check, po-token wall) rather than a genuinely private/deleted video."""
+    low = raw.lower()
+    return any(k in low for k in ("bot", "sign in", "no video formats",
+                                  "unavailable", "403", "confirm", "drm"))
+
+
+def youtube_client_ladder(url: str) -> Optional[dict]:
+    """Retry metadata extraction with alternate player clients; first success
+    wins. Returns None when every client is gated."""
+    for client in YT_ALT_CLIENTS:
+        try:
+            opts = base_opts()
+            opts["extractor_args"] = {**opts.get("extractor_args", {}),
+                                      "youtube": {"player_client": [client]}}
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(normalize_media_url(url), download=False)
+            if info and (info.get("formats") or info.get("entries")):
+                return info
+        except Exception:
+            continue
+    return None
 
 
 def _walk_video_lists(node: Any):
@@ -579,6 +611,9 @@ def analyze(url: str) -> dict[str, Any]:
             # Image posts make several extractors bail ("No video formats found",
             # "There is no video in this post", …). Layered fallbacks recover the
             # images anyway: platform-native APIs first, then OpenGraph metadata.
+            if info is None and platform == "youtube" and yt_gated_error(str(exc)):
+                # Bot-check on the default client — alternate clients often pass.
+                info = youtube_client_ladder(url)
             if platform == "pinterest":
                 info = _pinterest_fallback(url)
             if info is None and platform == "instagram":
