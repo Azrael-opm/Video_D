@@ -25,9 +25,9 @@ from yt_dlp.utils import DownloadError
 
 import config
 import db
-from extractors import (base_opts, detect_platform, format_selector_for_audio,
+from extractors import (detect_platform, format_selector_for_audio,
                         format_selector_for_height, friendly_fetch_error,
-                        yt_gated_error, YT_ALT_CLIENTS)
+                        opts_for_platform, yt_gated_error, YT_ALT_CLIENTS)
 
 STARTED_AT = time.time()
 # Changes on every server boot — the frontend uses it to detect a restart
@@ -312,7 +312,7 @@ def _download(job: Job) -> None:
 
 def _download_with_ytdlp(job: Job) -> Path:
     outtmpl = str(config.TMP_DIR / f"{job.id}.%(ext)s")
-    opts = base_opts(skip_download=False)
+    opts = opts_for_platform(job.platform or "", skip_download=False)
     opts.update({
         "outtmpl": outtmpl,
         "merge_output_format": "mp4",

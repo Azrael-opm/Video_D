@@ -155,7 +155,10 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
 # Alternate YouTube player clients, tried in order when the default client hits
 # YouTube's bot-check. The check hits some clients (web/mweb hardest) while
 # others (tv_embedded, android) usually still answer from datacenter IPs.
-YT_ALT_CLIENTS = ["tv_embedded", "android", "ios", "mweb"]
+# Merged sets matter: a single gated client silently degrades quality (android
+# alone = 360p), while a merged set returns every rendition the IP can reach.
+YT_PRIMARY_CLIENTS = "tv,web,android,mweb"
+YT_ALT_CLIENTS = ["tv,mweb,android", "tv_embedded,android", "android"]
 
 
 def yt_gated_error(raw: str) -> bool:
@@ -520,6 +523,17 @@ def base_opts(*, skip_download: bool = True) -> dict[str, Any]:
     return opts
 
 
+def opts_for_platform(platform: str, *, skip_download: bool = True) -> dict[str, Any]:
+    """base_opts plus platform tweaks. For YouTube the merged player-client
+    set is essential: when the web client is bot-gated yt-dlp otherwise
+    *silently* degrades to the android client's 360p-only streams."""
+    opts = base_opts(skip_download=skip_download)
+    if platform == "youtube":
+        opts["extractor_args"] = {**opts.get("extractor_args", {}),
+                                  "youtube": {"player_client": [YT_PRIMARY_CLIENTS]}}
+    return opts
+
+
 def format_selector_for_height(height: int) -> str:
     """yt-dlp format selector for a target quality.
 
@@ -587,7 +601,7 @@ def analyze(url: str) -> dict[str, Any]:
 
     if info is None:
         try:
-            with YoutubeDL(base_opts()) as ydl:
+            with YoutubeDL(opts_for_platform(platform)) as ydl:
                 info = ydl.extract_info(normalize_media_url(url), download=False)
         except (DownloadError, ExtractorError) as exc:
             # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
