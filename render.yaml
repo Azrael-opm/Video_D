@@ -1,0 +1,21 @@
+# Render.com one-click deploy blueprint — https://render.com/docs/blueprint-spec
+# Uses the native Python runtime; FFmpeg comes from the imageio-ffmpeg pip
+# package (auto-detected by the app), so no system packages are needed.
+services:
+  - type: web
+    name: nyx-downloader
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: ADMIN_PASSWORD
+        generateValue: true        # shown once in the Render dashboard — copy it!
+      - key: ANALYZE_RATE_LIMIT
+        value: "15/minute"
+      - key: DOWNLOAD_RATE_LIMIT
+        value: "8/hour"

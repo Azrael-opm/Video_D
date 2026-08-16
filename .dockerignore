@@ -1,0 +1,9 @@
+.git
+.gitignore
+build/node_modules
+backend/downloads
+backend/*.sqlite3*
+__pycache__
+*.pyc
+.venv
+README.md
