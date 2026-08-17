@@ -633,8 +633,9 @@ def analyze(url: str) -> dict[str, Any]:
         except (DownloadError, ExtractorError) as exc:
             # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
             # public syndication CDN is not — return direct .mp4 variants.
+            # fxtwitter covers sensitive-content tweets the CDN tombstones.
             if platform == "twitter":
-                syn = _twitter_syndication(url)
+                syn = _twitter_anon_fetch(url)
                 if syn and (syn["video_options"] or syn["image_options"]):
                     vo, io_, ao = syn["video_options"], syn["image_options"], syn["audio_options"]
                     if vo:
@@ -734,7 +735,7 @@ def analyze(url: str) -> dict[str, Any]:
     # public syndication CDN is not. Fill in direct .mp4 variants + photos.
     syn_meta: dict = {}
     if platform == "twitter" and not video_options:
-        syn = _twitter_syndication(url)
+        syn = _twitter_anon_fetch(url)
         if syn:
             video_options = syn["video_options"]
             audio_options = audio_options or syn["audio_options"]
@@ -903,6 +904,73 @@ def _x_token(tweet_id: str) -> int:
     return r
 
 
+def _twitter_audio_for(videos: list[dict]) -> list[dict]:
+    """MP3/M4A extraction options from the best direct .mp4 (muxed audio)."""
+    best = videos[0]["direct_url"] if videos else None
+    if not best:
+        return []
+    return [
+        {"kind": "audio", "audio_format": "mp3", "label": "MP3 — extract from video",
+         "filesize": None, "direct_url": best},
+        {"kind": "audio", "audio_format": "m4a", "label": "M4A — extract from video",
+         "filesize": None, "direct_url": best},
+    ]
+
+
+def _twitter_fxtwitter(url: str) -> Optional[dict]:
+    """Second anonymous X fallback (api.fxtwitter.com). Unlike the syndication
+    CDN it also serves tweets X tombstones as sensitive content."""
+    m = re.search(r"(?:twitter|x)\.com/([^/]+)/status/(\d+)", url)
+    if not m:
+        return None
+    api = f"https://api.fxtwitter.com/{m.group(1)}/status/{m.group(2)}"
+    try:
+        with httpx.Client(headers=HTTP_HEADERS, timeout=15, follow_redirects=True) as c:
+            d = c.get(api).json()
+    except Exception:  # noqa: BLE001
+        return None
+    t = d.get("tweet") if isinstance(d, dict) else None
+    if not isinstance(t, dict):
+        return None
+    media = t.get("media") or {}
+    videos: list[dict] = []
+    seen_h: set[int] = set()
+    for v in media.get("videos") or []:
+        src = v.get("url") or ""
+        if not src:
+            continue
+        h = int(v.get("height") or 0)
+        if h in seen_h:
+            continue
+        seen_h.add(h)
+        videos.append({"kind": "video", "height": h,
+                       "label": f"{h}p" if h else "Video",
+                       "filesize": None, "is_estimate": False, "direct_url": src})
+    videos.sort(key=lambda x: x["height"], reverse=True)
+    images = [{"kind": "image", "url": p.get("url"), "width": p.get("width"),
+               "height": p.get("height"),
+               "label": f"{p.get('width')}×{p.get('height')}" if p.get("width") else "Image",
+               "filesize": None}
+              for p in (media.get("photos") or []) if p.get("url")]
+    if not videos and not images:
+        return None
+    first_vid = (media.get("videos") or [{}])[0]
+    author = t.get("author") or {}
+    return {"title": (t.get("text") or "X post")[:120],
+            "uploader": author.get("name"),
+            "thumbnail": first_vid.get("thumbnail_url")
+                         or (images[0]["url"] if images else None),
+            "duration": (first_vid.get("duration") or 0) / 1000,
+            "video_options": videos, "image_options": images,
+            "audio_options": _twitter_audio_for(videos)}
+
+
+def _twitter_anon_fetch(url: str) -> Optional[dict]:
+    """Anonymous X media: syndication CDN first, then fxtwitter (which also
+    covers sensitive-content tweets the CDN tombstones)."""
+    return _twitter_syndication(url) or _twitter_fxtwitter(url)
+
+
 def _twitter_syndication(url: str) -> Optional[dict]:
     """Anonymous X/Twitter fallback via the public syndication CDN.
 
@@ -953,15 +1021,7 @@ def _twitter_syndication(url: str) -> Optional[dict]:
                            "label": f"{p.get('width')}×{p.get('height')}" if p.get("width") else "Image",
                            "filesize": None})
 
-    best_src = videos[0]["direct_url"] if videos else None
-    audio = []
-    if best_src:
-        audio = [
-            {"kind": "audio", "audio_format": "mp3", "label": "MP3 — extract from video",
-             "filesize": None, "direct_url": best_src},
-            {"kind": "audio", "audio_format": "m4a", "label": "M4A — extract from video",
-             "filesize": None, "direct_url": best_src},
-        ]
+    audio = _twitter_audio_for(videos)
 
     if not videos and not images:
         return None
