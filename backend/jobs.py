@@ -417,8 +417,8 @@ def _download_image(job: Job) -> Path:
 
 
 def _download_direct(job: Job) -> Path:
-    """Download a direct .mp4 URL (X/Twitter syndication CDN). In audio mode
-    the mp4 is downloaded then the audio track is extracted via FFmpeg."""
+    """Download a direct media URL (X syndication CDN, Snapchat spotlight…).
+    In audio mode the mp4 is downloaded then the audio track is extracted."""
     import httpx
     from extractors import HTTP_HEADERS
 

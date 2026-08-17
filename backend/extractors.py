@@ -702,6 +702,36 @@ def analyze(url: str) -> dict[str, Any]:
             "is_estimate": True,
         })
 
+    # Some embeds (Snapchat spotlight via the generic extractor) expose a muxed
+    # mp4 WITHOUT height metadata — the ladder above drops it and the post
+    # degrades to "photo only". Rescue height-less video formats as direct
+    # downloads so video posts stay video posts.
+    if not video_options:
+        seen_h: set = set()
+        for f in info.get("formats") or []:
+            src = f.get("url")
+            vc = f.get("vcodec") or ""
+            ext = (f.get("ext") or "").lower()
+            is_video = (vc and vc != "none") or ext in ("mp4", "webm", "mkv", "mov")
+            if not src or not is_video or (vc == "none"):
+                continue
+            h = f.get("height")
+            if h in seen_h:
+                continue
+            seen_h.add(h)
+            vsize = _fmt_size(f, duration)
+            total = (vsize or 0) + (audio_size or 0) if (vsize or audio_size) else None
+            video_options.append({
+                "kind": "video",
+                "height": h,
+                "label": f"{h}p" if h else "Video · original quality",
+                "fps": f.get("fps"),
+                "vcodec": (f.get("vcodec") or "").split(".")[0] or None,
+                "filesize": total,
+                "is_estimate": True,
+                "direct_url": src,
+            })
+
     # ---- audio options ---------------------------------------------------
     audio_options = []
     if best_audio:
@@ -723,6 +753,13 @@ def analyze(url: str) -> dict[str, Any]:
             "filesize": m4a_size or (int(abr * 1000 / 8 * duration) if duration and abr else None),
             "is_estimate": True,
         })
+
+    # Height-less embeds (Snapchat) carry no acodec metadata either — derive
+    # audio extraction options from the rescued direct video.
+    if not audio_options:
+        direct_vids = [v for v in video_options if v.get("direct_url")]
+        if direct_vids:
+            audio_options = _twitter_audio_for(direct_vids)
 
     if not video_options and not audio_options and not image_options:
         # Extraction "succeeded" but yielded nothing usable — one more shot
