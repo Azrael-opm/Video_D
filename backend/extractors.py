@@ -680,6 +680,14 @@ def analyze(url: str) -> dict[str, Any]:
             raise ValueError("This playlist appears to be empty.")
         info = entries[0]
 
+    # Snapchat's dedicated extractor returns zero formats these days and the
+    # generic one comes back height-less — the page's og:video meta carries
+    # the direct mp4 WITH resolution, so prefer it whenever heights are missing.
+    if platform == "snapchat" and not any(f.get("height") for f in info.get("formats") or []):
+        fmts = _snapchat_page_formats(url)
+        if fmts:
+            info = {**info, "formats": fmts}
+
     duration = info.get("duration") or 0
     best_audio = _best_audio(info)
     audio_size = _fmt_size(best_audio, duration) if best_audio else None
@@ -939,6 +947,32 @@ def _x_token(tweet_id: str) -> int:
     for ch in str(tweet_id):
         r = (r * 31 + ord(ch)) % 1_000_000_007
     return r
+
+
+def _snapchat_page_formats(url: str) -> list[dict]:
+    """Snapchat's dedicated yt-dlp extractor returns zero formats these days,
+    but the spotlight page itself exposes the direct mp4 — with resolution —
+    via og:video. Scrape it."""
+    try:
+        with httpx.Client(headers=HTTP_HEADERS, timeout=15, follow_redirects=True) as c:
+            html = c.get(url).text
+    except Exception:  # noqa: BLE001
+        return []
+
+    def meta(prop: str) -> str:
+        m = (re.search(rf'<meta[^>]+property="og:video:{prop}"[^>]+content="([^"]+)"', html)
+             or re.search(rf'<meta[^>]+content="([^"]+)"[^>]+property="og:video:{prop}"', html))
+        return m.group(1) if m else ""
+
+    m = (re.search(r'<meta[^>]+property="og:video"[^>]+content="([^"]+)"', html)
+         or re.search(r'<meta[^>]+content="([^"]+)"[^>]+property="og:video"', html))
+    if not m:
+        return []
+    src = m.group(1).replace("&amp;", "&")
+    h, w = meta("height"), meta("width")
+    return [{"url": src, "ext": "mp4",
+             "height": int(h) if h.isdigit() else None,
+             "width": int(w) if w.isdigit() else None}]
 
 
 def _twitter_audio_for(videos: list[dict]) -> list[dict]:
