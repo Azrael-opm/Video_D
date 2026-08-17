@@ -721,7 +721,7 @@ function drawJobs(){
     <td class="px-4 py-3 text-right whitespace-nowrap text-xs font-medium space-x-2.5">
       ${["queued","downloading","processing"].includes(j.status)?`<button data-cancel="${j.id}" class="text-amber-600 dark:text-amber-300 hover:underline">cancel</button>`:""}
       ${["error","cancelled"].includes(j.status)&&["video","audio","image","preview"].includes(j.mode)?`<button data-retry="${j.id}" class="text-blue-600 dark:text-blue-300 hover:underline">retry</button>`:""}
-      ${(j.error||j.error_log)?`<button data-report="${j.id}" class="text-indigo-600 dark:text-indigo-300 hover:underline">report</button>`:""}
+      ${(["done","error","cancelled"].includes(j.status)||j.error||j.error_log)?`<button data-report="${j.id}" class="text-indigo-600 dark:text-indigo-300 hover:underline">report</button>`:""}
       <button data-del="${j.id}" class="text-red-500 hover:underline">delete</button></td></tr>`;}).join("")
     :`<tr><td colspan="7" class="px-4 py-10 text-center text-smoke text-sm">No jobs found.</td></tr>`;
   document.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=async()=>{ await api(`/api/admin/jobs/${b.dataset.cancel}/cancel`,{method:"POST"}); toast("Cancel requested","success"); refresh(); });
@@ -749,6 +749,13 @@ function buildJobReport(j){
   L.push("source: "+(j.url||"—"));
   L.push("client ip: "+(j.client_ip||"—"));
   L.push("status: "+(j.status||"?")+(j.filesize?" | output: "+j.filename+" ("+fmtBytes(j.filesize)+")":""));
+  if (j.status === "done") {
+    const secs = (j.finished_at && j.created_at) ? Math.max(0, Math.round(j.finished_at - j.created_at)) : null;
+    L.push("");
+    L.push("── success summary ──");
+    L.push("output: "+(j.filename||"—")+(j.filesize?" ("+fmtBytes(j.filesize)+")":""));
+    L.push("took: "+(secs != null ? secs+"s" : "—"));
+  }
   L.push("");
   L.push("error: "+(j.error||"(none)"));
   L.push("");

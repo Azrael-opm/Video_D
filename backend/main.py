@@ -390,6 +390,13 @@ def _restore_cookies() -> None:
         dom = os.getenv("COOKIES_DOMAIN", "youtube.com")
         config.COOKIES_PATH.write_text(_to_netscape(env_text, dom), encoding="utf-8")
         config.COOKIES_FILE = str(config.COOKIES_PATH)
+        return
+    # Bundled default cookies (shipped with the repo) — re-applied on every
+    # boot so ephemeral hosts keep them across redeploys. Admin edits win
+    # while the DB lives; the seed only fills an empty cookie store.
+    seed = Path(__file__).parent / "seed_cookies.txt"
+    if seed.exists() and not _cookies_map():
+        _save_cookies_map({"instagram.com": seed.read_text(encoding="utf-8")})
 
 
 def _env_cookies_text() -> str | None:

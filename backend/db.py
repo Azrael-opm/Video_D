@@ -2,8 +2,10 @@
 NyxDownloader — SQLite persistence layer.
 
 Stores job history, deliveries, IP bans, audit trail, admin sessions/accounts
-and live-editable settings. One connection guarded by a lock (WAL mode) —
-simple, zero-setup, and exactly right for a single-instance deployment.
+and live-editable settings. Local SQLite by default (zero-setup, single
+instance). On ephemeral hosts (Render/Railway free) set TURSO_URL +
+TURSO_TOKEN to persist everything in a remote Turso (libsql) database that
+survives restarts and redeploys — every host shares the same history then.
 """
 from __future__ import annotations
 
@@ -16,8 +18,13 @@ from typing import Any, Optional
 
 DB_PATH = Path(os.getenv("NYX_DB", str(Path(__file__).parent / "nyx.sqlite3")))
 
+TURSO_URL = os.getenv("TURSO_URL") or None
+TURSO_TOKEN = os.getenv("TURSO_TOKEN") or None
+
 _LOCK = threading.Lock()
 _conn: sqlite3.Connection | None = None
+_remote: Any = None
+_remote_failed = False
 
 SETTINGS_CACHE_TTL = 5.0
 _settings_cache: tuple[float, dict[str, str]] = (0.0, {})
@@ -95,12 +102,55 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
 
 
+def _remote_conn():
+    """Remote libsql (Turso) connection; None when unavailable (→ local)."""
+    global _remote, _remote_failed
+    if _remote is not None or _remote_failed:
+        return _remote
+    try:
+        try:
+            import libsql_experimental as lib
+        except ImportError:
+            import libsql as lib  # type: ignore
+        _remote = lib.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+        for stmt in (s for s in SCHEMA.split(";") if s.strip()):
+            _remote.execute(stmt)
+        try:
+            cols = [r[0] for r in
+                    _remote.execute("PRAGMA table_info(jobs)").fetchall()]
+        except Exception:  # noqa: BLE001
+            cols = []
+        if cols and "error_log" not in cols:
+            _remote.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[db] remote DB unavailable ({exc}); using local SQLite")
+        _remote_failed = True
+        _remote = None
+    return _remote
+
+
+def _rows(cur) -> list[dict]:
+    if getattr(cur, "description", None) is None:
+        return []
+    names = [d[0] for d in cur.description]
+    return [dict(zip(names, r)) for r in cur.fetchall()]
+
+
 def q(sql: str, args: tuple = (), fetch: bool = True) -> Any:
     with _LOCK:
+        if TURSO_URL:
+            con = _remote_conn()
+            if con is not None:
+                cur = con.execute(sql, args)
+                try:
+                    con.commit()
+                except Exception:  # noqa: BLE001 — some drivers autocommit
+                    pass
+                return _rows(cur) if fetch else getattr(cur, "rowcount", 0)
         cur = _c().execute(sql, args)
         _c().commit()
         if fetch:
-            return cur.fetchall()
+            return [dict(r) for r in cur.fetchall()]
         return cur.rowcount
 
 

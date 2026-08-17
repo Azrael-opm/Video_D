@@ -175,6 +175,23 @@ Ops behaviors:
    restart — set `COOKIES_B64` (or `COOKIES_TEXT`) so login-gated platforms stay
    unlocked across restarts
 
+### Persistent history on ephemeral hosts (Render / Railway free)
+
+Everything (jobs, audit, bans, settings, sessions) lives in a local SQLite
+file by default — on ephemeral hosts it dies with every restart/redeploy.
+To make the admin dashboard **survive refreshes**, create a free Turso
+database and point the app at it:
+
+1. sign up at turso.tech (free tier, GitHub login works)
+2. create a database, e.g. `nyx`
+3. copy its URL (`libsql://nyx-….turso.io`) and mint an access token
+4. set `TURSO_URL` + `TURSO_TOKEN` in the host's environment (Render and/or
+   Railway) and redeploy
+
+All hosts sharing those vars share one persistent history. Without the vars
+the app silently keeps local SQLite. (Instagram default cookies ship bundled
+in `backend/seed_cookies.txt` and re-apply on every boot.)
+
 ---
 
 ## Frontend build (Tailwind)
@@ -221,6 +238,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | `FFMPEG_PATH` | auto-detected | path to the ffmpeg binary/directory |
 | `COOKIES_FILE` | – | Netscape cookies.txt for login-gated content (some IG/X/TikTok) |
 | `COOKIES_B64` | – | base64 of a cookies file — for ephemeral-disk hosts (Render free) where the dashboard-saved cookies die on restart; env survives |
+| `TURSO_URL` | – | remote Turso/libsql DB (`libsql://…`) — history survives restarts/redeploys on ephemeral hosts |
+| `TURSO_TOKEN` | – | access token for `TURSO_URL` |
 | `COOKIES_TEXT` | – | raw cookie paste (Netscape export or `a=1; b=2`), same purpose as `COOKIES_B64`; `COOKIES_DOMAIN` picks the platform for raw pastes |
 | `ANALYZE_RATE_LIMIT` | `15/minute` | slowapi limit for analyze |
 | `DOWNLOAD_RATE_LIMIT` | `8/hour` | slowapi limit for downloads |
