@@ -60,8 +60,12 @@ receives one finished file.
 ### Watermark handling
 * **TikTok** — yt-dlp's extractor returns the clean (non-watermarked) renditions and we
   pass `extractor_args` that prefer the watermark-free API endpoints.
-* **Instagram / Facebook / X / Reddit / Snapchat / YouTube** — the served files are the
+* **Instagram / Facebook / X / Reddit / YouTube** — the served files are the
   original uploads (Shorts, Reels, tweets…), so there is no watermark to remove.
+* **Snapchat** — every anonymous CDN rendition has the ghost logo + username
+  burned into the top-left (no clean variant exists). Downloads are passed
+  through an ffmpeg `delogo` interpolation pass (box scaled to the frame) that
+  removes it; creator-added stickers/sound pills are left untouched.
 
 ### Rate limiting
 `slowapi` enforces per-client limits (X-Forwarded-For aware for reverse proxies):

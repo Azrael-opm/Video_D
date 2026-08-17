@@ -276,6 +276,9 @@ def _download(job: Job) -> None:
     # ---- direct .mp4 URL (X/Twitter syndication fallback) ------------------
     if job.direct_url:
         path = _download_direct(job)
+        if job.platform == "snapchat":
+            job.status = "processing"
+            path = _snap_clean(path)
     # ---- Recode Studio: uploaded file → size-targeted two-pass encode -----
     elif job.mode == "upload_recode":
         path = _upload_recode(job)
@@ -414,6 +417,33 @@ def _download_image(job: Job) -> Path:
                         job.progress = min(99.0, done / total * 100)
     job.progress = 99.0
     return dest
+
+
+def _snap_clean(path: Path) -> Path:
+    """Snapchat burns its ghost logo + username into the top-left of every
+    CDN rendition — no clean anonymous source exists. Interpolate the fixed
+    box away with ffmpeg's delogo (box scales with the frame)."""
+    probe = subprocess.run([config.FFMPEG_PATH, "-i", str(path)],
+                           capture_output=True, text=True)
+    m = re.search(r", (\d{2,5})x(\d{2,5})[,\s]", probe.stderr)
+    if not m:
+        return path
+    W, H = int(m.group(1)), int(m.group(2))
+    x = max(1, int(W * 0.015))
+    y = max(1, int(H * 0.050))
+    w = min(W - x - 2, int(W * 0.46))
+    h = min(H - y - 2, int(H * 0.175))
+    out = path.with_name(path.stem + ".clean.mp4")
+    cmd = [config.FFMPEG_PATH, "-y", "-i", str(path),
+           "-vf", f"delogo=x={x}:y={y}:w={w}:h={h}",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+           "-threads", ENC_THREADS,
+           "-c:a", "copy", "-movflags", "+faststart", str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not out.exists():
+        return path          # keep the watermarked original over nothing
+    path.unlink(missing_ok=True)
+    return out
 
 
 def _download_direct(job: Job) -> Path:
