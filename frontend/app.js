@@ -93,8 +93,6 @@ const state = {
   previewTimer: null,
   previewUrl: null,       // finished 480p preview file
   downloading: false,
-  blobUrl: null,
-  blobName: null,
 };
 
 const els = {
@@ -184,8 +182,6 @@ function isComposite(m) {
 function resetMediaUI() {
   stopPolling();
   if (state.previewTimer) { clearTimeout(state.previewTimer); state.previewTimer = null; }
-  if (state.blobUrl) { URL.revokeObjectURL(state.blobUrl); state.blobUrl = null; }
-  state.blobName = null;
   state.previewUrl = null;
   els.thumbBox.querySelectorAll("video, audio").forEach((el) => el.remove());
   els.thumb.classList.remove("hidden");
@@ -477,26 +473,15 @@ function applyJob(job) {
   }
 }
 
-async function deliverFile(job) {
-  try {
-    const res = await fetch(job.download_url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    if (state.blobUrl) URL.revokeObjectURL(state.blobUrl);
-    state.blobUrl = URL.createObjectURL(blob);
-    state.blobName = job.filename || "download";
-    triggerSave(state.blobUrl, state.blobName);
-    els.save.href = state.blobUrl;
-    els.save.setAttribute("download", state.blobName);
-    els.save.classList.remove("hidden");
-    showToast("Your download is ready — check your browser's downloads.", "success");
-  } catch {
-    els.save.href = job.download_url;
-    els.save.removeAttribute("download");
-    els.save.classList.remove("hidden");
-    triggerSave(job.download_url, job.filename);
-    showToast("File ready — if it didn't auto-save, use the 'Save file again' button.", "warn");
-  }
+function deliverFile(job) {
+  // Direct link — the browser streams straight to disk instead of holding
+  // the whole file in a memory blob (matters for 4K on low-RAM phones).
+  // The server's Content-Disposition header carries the filename.
+  els.save.href = job.download_url;
+  els.save.setAttribute("download", job.filename || "download");
+  els.save.classList.remove("hidden");
+  triggerSave(job.download_url, job.filename);
+  showToast("Your download is ready — check your browser's downloads.", "success");
 }
 
 function triggerSave(href, filename) {

@@ -1070,7 +1070,7 @@ async function refresh(){
 }
 function beginPolling(){
   if(timer) clearInterval(timer);
-  timer=setInterval(refresh,3000);
+  timer=setInterval(refresh,5000);   // 5s + the 2s server-side stats cache keeps DB load low
 }
 
 TOKEN ? showDash() : showLogin();

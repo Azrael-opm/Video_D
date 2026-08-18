@@ -41,6 +41,7 @@ from typing import Literal, Optional
 import yt_dlp.version
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -88,6 +89,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="NyxDownloader API", version="2.0.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -107,10 +109,14 @@ async def ban_and_cache(request: Request, call_next):
         # a cached progress response freezes the UI mid-encode.
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-    elif path in ("/", "/recode", "/admin") or path.endswith((".html", ".js", ".css")):
+    elif path in ("/", "/recode", "/admin") or path.endswith(".html"):
+        # Pages always fresh so updates reach users instantly.
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    elif path.endswith((".js", ".css", ".svg", ".png", ".ico")):
+        # Static assets: cache 10 min, revalidate via ETag afterwards.
+        response.headers["Cache-Control"] = "public, max-age=600"
     return response
 
 
@@ -119,6 +125,9 @@ async def ban_and_cache(request: Request, call_next):
 # ---------------------------------------------------------------------------
 class AnalyzeRequest(BaseModel):
     url: str = Field(..., min_length=4, max_length=2000)
+
+
+_ANALYZE_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 class DownloadRequest(BaseModel):
@@ -182,10 +191,19 @@ def health():
 @limiter.limit(BASELINE)
 def analyze(request: Request, body: AnalyzeRequest):
     _limit(request, "analyze_rate_limit")
+    # 5-minute metadata cache: retries and shared links skip yt-dlp entirely
+    # (instant response, no platform load, no rate-limit burn).
+    key = body.url.strip()
+    hit = _ANALYZE_CACHE.get(key)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
     try:
         data = extractors.analyze(body.url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if len(_ANALYZE_CACHE) > 200:
+        _ANALYZE_CACHE.clear()
+    _ANALYZE_CACHE[key] = (time.time(), data)
     return data
 
 
@@ -554,9 +572,17 @@ def admin_me(request: Request):
 
 
 # ---- overview -------------------------------------------------------------
+_STATS_CACHE: tuple[float, dict] = (0.0, {})
+
 @app.get("/api/admin/stats")
 def admin_stats(request: Request):
+    global _STATS_CACHE
     _actor(request)
+    now = time.time()
+    # The dashboard polls every few seconds; a 2s cache collapses the query
+    # load (local or remote DB) without any visible staleness.
+    if now - _STATS_CACHE[0] < 2 and _STATS_CACHE[1]:
+        return _STATS_CACHE[1]
     snap = jobstore.stats_snapshot()
     settings = db.all_settings()
     snap["config"] = {
@@ -569,6 +595,7 @@ def admin_stats(request: Request):
         "ytdlp_age_days": _ytdlp_age_days(),
     }
     snap["disk_cap_gb"] = float(settings.get("disk_cap_gb") or 0)
+    _STATS_CACHE = (time.time(), snap)
     return snap
 
 
