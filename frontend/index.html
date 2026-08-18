@@ -186,7 +186,16 @@
         Fetch
       </button>
     </div>
-    <p id="urlHint" class="text-center text-xs text-smoke mt-3 h-4">Tip: paste a link and we'll detect the platform automatically.</p>
+    <p id="urlHint" class="text-center text-xs text-smoke mt-3 h-4">Tip: paste a link and we'll detect the platform automatically — or paste several for bulk mode.</p>
+
+    <!-- bulk tray -->
+    <div id="bulkBox" class="hidden max-w-2xl mx-auto mt-5 bg-surface backdrop-blur rounded-3xl shadow-card border border-hairline p-5 text-left">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <p class="text-sm font-semibold"><span id="bulkCount">0</span> links <span class="text-smoke font-normal">· duplicates removed</span></p>
+        <button id="bulkAllBtn" class="grad-btn text-white text-sm font-semibold rounded-xl px-4 py-2">Download all</button>
+      </div>
+      <div id="bulkList" class="space-y-2"></div>
+    </div>
 
     <!-- Recode spotlight -->
     <a href="/recode" class="group mt-6 block rounded-2xl p-[1.5px] transition-transform duration-200 hover:-translate-y-0.5"

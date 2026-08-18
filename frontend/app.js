@@ -194,8 +194,18 @@ function resetMediaUI() {
 // Analyze flow
 // --------------------------------------------------------------
 async function analyze() {
-  const url = els.input.value.trim();
-  if (!url) { showToast("Paste a link first.", "warn"); return; }
+  const urls = extractUrls(els.input.value);
+  if (!urls.length) { showToast("Paste a link first.", "warn"); return; }
+
+  // Bulk mode: several pasted links → tray of rows instead of one card.
+  if (urls.length > 1) {
+    resetMediaUI();
+    setBusy(true);
+    try { await runBulk(urls); } finally { setBusy(false); }
+    return;
+  }
+  const url = urls[0];
+  $("bulkBox").classList.add("hidden");
 
   const held = detectPlatform(url);
   if (held && PLATFORMS[held].hold) { showToast(PLATFORMS[held].holdMsg, "warn"); return; }
@@ -519,6 +529,116 @@ function stopPolling() {
 }
 
 // --------------------------------------------------------------
+// Bulk paste — several links at once, deduped, per-row quality
+// --------------------------------------------------------------
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function extractUrls(t) {
+  return [...new Set(t.match(/https?:\/\/[^\s]+/g) || [])].slice(0, 10);
+}
+
+const BULK = [];
+
+async function runBulk(urls) {
+  els.card.classList.add("hidden");
+  $("bulkBox").classList.remove("hidden");
+  $("bulkCount").textContent = urls.length;
+  $("bulkList").innerHTML = "";
+  BULK.length = 0;
+  for (const u of urls) {
+    const row = { url: u, meta: null, started: false, el: document.createElement("div") };
+    row.el.className = "flex flex-wrap items-center gap-2.5 bg-mist/60 rounded-2xl px-4 py-3 text-sm";
+    row.el.innerHTML = `<span class="flex-1 min-w-0 truncate text-smoke">${esc(u)}</span>` +
+                       `<span class="bulk-status text-xs text-smoke shrink-0">fetching…</span>`;
+    $("bulkList").appendChild(row.el);
+    BULK.push(row);
+    try {
+      row.meta = await api("/api/analyze", { url: u });
+      fillRow(row);
+    } catch (e) {
+      const st = row.el.querySelector(".bulk-status");
+      st.textContent = "✕ " + e.message.slice(0, 70);
+      st.className = "bulk-status text-xs text-red-500 shrink-0";
+    }
+  }
+}
+
+function rowOptions(m) {
+  const opts = [];
+  if (m.video_options.length) m.video_options.forEach((v, i) => opts.push({ kind: "video", i, label: v.label }));
+  else if (m.image_options.length) opts.push({ kind: "image", i: 0, label: `Image · ${m.image_options.length} photo(s)` });
+  if (m.audio_options.length) opts.push({ kind: "audio", i: 0, label: "Audio · MP3" });
+  return opts;
+}
+
+function fillRow(row) {
+  const m = row.meta;
+  const p = PLATFORMS[m.platform] || PLATFORMS.generic;
+  row.opts = rowOptions(m);
+  row.el.innerHTML = `
+    <span class="shrink-0">${p.icon()}</span>
+    <span class="flex-1 min-w-0 truncate font-medium">${esc(m.title || m.url)}</span>
+    <select class="bulk-sel bg-mist text-xs rounded-lg px-2 py-1.5 focus:outline-none">
+      ${row.opts.map((o, i) => `<option value="${i}">${esc(o.label)}</option>`).join("")}
+    </select>
+    <button class="bulk-dl grad-btn text-white text-xs font-semibold rounded-lg px-3.5 py-2 shrink-0">Download</button>
+    <span class="bulk-status text-xs text-smoke shrink-0 w-24 text-right"></span>`;
+  row.el.querySelector(".bulk-dl").addEventListener("click", () => startRow(row));
+}
+
+async function startRow(row) {
+  if (!row.meta || row.started || !row.opts.length) return;
+  row.started = true;
+  const m = row.meta;
+  const choice = row.opts[+row.el.querySelector(".bulk-sel").value] || row.opts[0];
+  const body = { url: m.webpage_url || m.url, title: m.title,
+                 mode: choice.kind === "image" ? "image" : choice.kind };
+  if (choice.kind === "video") {
+    const v = m.video_options[choice.i];
+    body.height = v.height;
+    if (v.direct_url) body.direct_url = v.direct_url;
+  } else if (choice.kind === "audio") {
+    const a = m.audio_options[choice.i];
+    body.audio_format = a.audio_format || "mp3";
+    if (a.direct_url) body.direct_url = a.direct_url;
+  } else {
+    body.image_url = m.image_options[0].url;
+  }
+  const st = row.el.querySelector(".bulk-status");
+  st.textContent = "starting…";
+  try {
+    const job = await api("/api/download", body);
+    pollRow(row, job.id, st);
+  } catch (e) {
+    row.started = false;
+    st.textContent = "✕ " + e.message.slice(0, 60);
+    st.className = "bulk-status text-xs text-red-500 shrink-0 w-24 text-right";
+  }
+}
+
+function pollRow(row, jobId, st) {
+  const tick = async () => {
+    try {
+      const job = await api(`/api/jobs/${jobId}?t=${Date.now()}`);
+      if (job.status === "downloading") { st.textContent = `${Math.round(job.progress || 0)}%`; setTimeout(tick, 900); }
+      else if (job.status === "queued" || job.status === "processing") { st.textContent = `${job.status}…`; setTimeout(tick, 900); }
+      else if (job.status === "done") {
+        st.textContent = "✔ saved";
+        st.className = "bulk-status text-xs text-emerald-600 dark:text-emerald-300 shrink-0 w-24 text-right";
+        triggerSave(job.download_url, job.filename);
+      } else {
+        st.textContent = "✕ failed";
+        st.className = "bulk-status text-xs text-red-500 shrink-0 w-24 text-right";
+        row.started = false;
+      }
+    } catch (e) { setTimeout(tick, 1500); }
+  };
+  setTimeout(tick, 600);
+}
+
+// --------------------------------------------------------------
 // Theme toggle
 // --------------------------------------------------------------
 function paintThemeIcon() {
@@ -590,6 +710,9 @@ function onInput() {
 renderPills();
 paintThemeIcon();
 els.fetch.addEventListener("click", analyze);
+$("bulkAllBtn").addEventListener("click", () => {
+  BULK.forEach((row, i) => setTimeout(() => startRow(row), i * 400));
+});
 els.dlBtn.addEventListener("click", startDownload);
 els.reset.addEventListener("click", () => location.reload());   // "Download another file"
 els.input.addEventListener("input", onInput);

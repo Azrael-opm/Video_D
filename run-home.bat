@@ -14,6 +14,7 @@ where python >nul 2>&1 || (
 
 echo [1/3] Installing dependencies...
 python -m pip install -r backend\requirements.txt --quiet --disable-pip-version-check
+if not defined NO_YTDLP_UPDATE python -m pip install -q -U yt-dlp --disable-pip-version-check
 
 echo [2/3] Starting backend on http://localhost:8000 ...
 start "NyxBackend" /min "%~dp0start-backend.bat"

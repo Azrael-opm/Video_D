@@ -17,5 +17,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 WORKDIR /app/backend
-# PaaS platforms inject $PORT; fall back to 8000 for plain docker run
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# entrypoint self-updates yt-dlp first (skip with NO_YTDLP_UPDATE=1)
+CMD ["sh", "entrypoint.sh"]
