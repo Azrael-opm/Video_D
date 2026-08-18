@@ -137,6 +137,7 @@ class RecodeStartRequest(BaseModel):
     target_mb: Optional[float] = Field(None, gt=0, le=10240)
     preset: Literal["none", "tiktok", "instagram", "youtube", "facebook", "snapchat"] = "none"
     mode: Literal["compress", "sync", "repair"] = "compress"
+    fast: bool = True   # 1-pass ≈2× faster; 2-pass for exact-size precision
 
 
 class AdminLogin(BaseModel):
@@ -318,7 +319,8 @@ def recode_start(request: Request, body: RecodeStartRequest):
         raise HTTPException(status_code=422, detail=str(exc))
     job = jobstore.create_upload_recode_job(up.path, up.filename, body.preset,
                                             body.target_mb, body.mode,
-                                            client_ip=auth.client_ip(request))
+                                            client_ip=auth.client_ip(request),
+                                            fast=body.fast)
     return job.snapshot()
 
 

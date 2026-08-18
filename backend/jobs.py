@@ -36,13 +36,14 @@ BOOT_ID = uuid.uuid4().hex[:12]
 
 
 def _encode_threads() -> str:
-    """1 thread on tiny hosts (Render free = 512 MB): decoder frame buffers
-    scale with resolution × threads, so 4K HEVC would OOM a small box."""
+    """Encoder threads by host RAM: decoder frame buffers scale with
+    resolution × threads, so 4K HEVC would OOM a tiny box — but bigger
+    boxes should use more threads or encodes crawl."""
     try:
         for line in open("/proc/meminfo"):
             if line.startswith("MemTotal:"):
                 kb = int(line.split()[1])
-                return "1" if kb < 1_000_000 else "2"
+                return "1" if kb < 1_000_000 else ("2" if kb < 3_000_000 else "4")
     except OSError:
         pass
     return "2"
@@ -92,6 +93,7 @@ class Job:
     source_path: Optional[str] = None  # recode input file
     target_mb: Optional[float] = None  # upload-recode target size
     recode_mode: Optional[str] = None  # compress | sync | repair
+    recode_fast: Optional[int] = None  # 1 = single-pass "fast" compress
     status: str = "queued"           # queued|downloading|processing|done|error
     progress: float = 0.0            # 0–100
     speed: Optional[float] = None    # bytes/sec
@@ -152,6 +154,7 @@ def _persist(job: Job) -> None:
             "target_mb": job.target_mb, "height": job.height,
             "audio_format": job.audio_format, "image_url": job.image_url,
             "title": job.title, "client_ip": job.client_ip,
+            "recode_fast": job.recode_fast,
             "created_at": job.created_at,
             "finished_at": time.time() if job.status in ("done", "error", "cancelled") else None,
         })
@@ -171,7 +174,8 @@ def request_cancel(job_id: str) -> bool:
 def create_upload_recode_job(source_path: str, filename: str,
                              preset: str, target_mb: float,
                              recode_mode: str = "compress",
-                             client_ip: str | None = None) -> Job:
+                             client_ip: str | None = None,
+                             fast: bool = False) -> Job:
     """Recode Studio: compress / fix sync / repair an uploaded file."""
     stem = filename.rsplit(".", 1)[0] if "." in filename else filename
     title = re.sub(r"[^\w\-. ]+", "", stem).strip()[:80] or "video"
@@ -179,6 +183,7 @@ def create_upload_recode_job(source_path: str, filename: str,
               platform="upload", preset=preset, source_path=source_path,
               target_mb=target_mb, title_hint=title, recode_mode=recode_mode,
               client_ip=client_ip)
+    job.recode_fast = 1 if fast else 0
     job.title = title
     job.status = "processing"
     with _LOCK:
@@ -685,8 +690,29 @@ def _upload_recode(job: Job) -> Path:
         job.progress = 99.0
         return out
 
-    # ---- compress: two-pass size-targeted encode ---------------------------
+    # ---- compress: size-targeted encode ------------------------------------
+    # fast  = single-pass ABR: ~2× quicker, same bitrate ⇒ same quality at the
+    #         target size, lands within a few % of it (default — people wait
+    #         less, platforms care about ceilings not exact bytes)
+    # exact = two-pass: slower, tighter bit allocation + near-exact size
     vbr, abr = plan["video_kbps"], plan["audio_kbps"]
+    if job.recode_fast:
+        cmd = [config.FFMPEG_PATH, "-y", *common_in,
+               "-map_metadata", "-1",
+               "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+               "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
+               "-bufsize", f"{int(vbr * 2.6)}k",
+               "-preset", "veryfast", "-threads", ENC_THREADS, "-fps_mode", "cfr",
+               "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
+        cmd += (["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr
+                else ["-an"])
+        cmd.append(str(out))
+        _ffmpeg_with_progress(cmd, job, duration, 5.0, 98.0)
+        if not out.exists():
+            raise RuntimeError("Compression produced no output file.")
+        job.progress = 99.0
+        return out
+
     passlog = str(config.TMP_DIR / f"{job.id}.ffpass")
 
     # Pass 1 also streams progress — no silent 5% wait on long files.

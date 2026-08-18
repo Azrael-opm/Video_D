@@ -163,6 +163,16 @@
         <button id="planBtn" class="grad-btn text-white font-semibold text-sm rounded-xl px-4 sm:px-5 shrink-0">Check plan</button>
       </div>
       <div id="sizeChips" class="flex flex-wrap gap-2 mt-3"></div>
+
+      <label class="text-xs font-medium text-smoke uppercase tracking-wide mt-4 block">Encode speed</label>
+      <div class="grid grid-cols-2 gap-2 mt-1.5">
+        <button id="speedFast" type="button" class="rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left">
+          ⚡ Fast<span class="block text-[11px] font-normal opacity-80">1-pass · ~2× quicker · same quality at target</span>
+        </button>
+        <button id="speedExact" type="button" class="rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left">
+          🎯 Precise<span class="block text-[11px] font-normal opacity-80">2-pass · slower · near-exact size</span>
+        </button>
+      </div>
     </div>
 
     <!-- sync explanation -->
@@ -452,6 +462,18 @@ function renderPlan(p) {
 
 $("targetInput").addEventListener("input", fetchPlan);
 $("platformSelect").addEventListener("change", () => { renderChips(); fetchPlan(); });
+
+/* ---------- encode speed toggle ---------- */
+state.fast = true;
+function paintSpeed() {
+  const on = "grad-btn text-white border-transparent",
+        off = "bg-mist text-smoke border-hairline hover:bg-black/[.05] dark:hover:bg-white/[.07]";
+  $("speedFast").className = `rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left ${state.fast ? on : off}`;
+  $("speedExact").className = `rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left ${state.fast ? off : on}`;
+}
+$("speedFast").addEventListener("click", () => { state.fast = true; paintSpeed(); });
+$("speedExact").addEventListener("click", () => { state.fast = false; paintSpeed(); });
+paintSpeed();
 $("planBtn").addEventListener("click", fetchPlan);
 
 /* ---------- recode ---------- */
@@ -467,7 +489,10 @@ $("recodeBtn").addEventListener("click", async () => {
   $("progressCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const body = { upload_id: state.upload.upload_id, preset: $("platformSelect").value, mode: state.fn };
-    if (state.fn === "compress") body.target_mb = parseFloat($("targetInput").value);
+    if (state.fn === "compress") {
+      body.target_mb = parseFloat($("targetInput").value);
+      body.fast = state.fast;
+    }
     const job = await api("/api/recode/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

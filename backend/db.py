@@ -100,6 +100,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
     if "error_log" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
+    if "recode_fast" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN recode_fast INTEGER")
 
 
 def _remote_conn():
@@ -122,6 +124,8 @@ def _remote_conn():
             cols = []
         if cols and "error_log" not in cols:
             _remote.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
+        if cols and "recode_fast" not in cols:
+            _remote.execute("ALTER TABLE jobs ADD COLUMN recode_fast INTEGER")
     except Exception as exc:  # noqa: BLE001
         print(f"[db] remote DB unavailable ({exc}); using local SQLite")
         _remote_failed = True
@@ -159,8 +163,8 @@ def q(sql: str, args: tuple = (), fetch: bool = True) -> Any:
 # ---------------------------------------------------------------------------
 _JOB_FIELDS = ("id", "url", "mode", "platform", "status", "progress", "filesize",
                "filename", "error", "error_log", "preset", "target_mb", "height",
-               "audio_format", "image_url", "title", "client_ip", "created_at",
-               "finished_at")
+               "audio_format", "image_url", "title", "client_ip", "recode_fast",
+               "created_at", "finished_at")
 
 
 def job_upsert(j: dict) -> None:
