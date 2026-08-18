@@ -748,9 +748,12 @@ function buildJobReport(j){
   L.push("title: "+(j.title||"—"));
   L.push("source: "+(j.url||"—"));
   L.push("client ip: "+(j.client_ip||"—"));
+  const secs = (j.finished_at && j.created_at) ? Math.max(0, Math.round(j.finished_at - j.created_at)) : null;
   L.push("status: "+(j.status||"?")+(j.filesize?" | output: "+j.filename+" ("+fmtBytes(j.filesize)+")":""));
+  if (j.mode === "upload_recode") {
+    L.push("recode time: "+(secs != null ? secs+"s" : "—")+"  (start → finish, incl. queue)");
+  }
   if (j.status === "done") {
-    const secs = (j.finished_at && j.created_at) ? Math.max(0, Math.round(j.finished_at - j.created_at)) : null;
     L.push("");
     L.push("── success summary ──");
     L.push("output: "+(j.filename||"—")+(j.filesize?" ("+fmtBytes(j.filesize)+")":""));
