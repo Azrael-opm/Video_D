@@ -179,18 +179,21 @@ Ops behaviors:
 
 Everything (jobs, audit, bans, settings, sessions) lives in a local SQLite
 file by default — on ephemeral hosts it dies with every restart/redeploy.
-To make the admin dashboard **survive refreshes**, create a free Turso
-database and point the app at it:
+Two ways to make it survive:
 
-1. sign up at turso.tech (free tier, GitHub login works)
-2. create a database, e.g. `nyx`
-3. copy its URL (`libsql://nyx-….turso.io`) and mint an access token
-4. set `TURSO_URL` + `TURSO_TOKEN` in the host's environment (Render and/or
-   Railway) and redeploy
+**A. GitHub mirror (zero sign-ups — recommended).** Set one env var on the
+host: `SYNC_TOKEN` = a GitHub PAT with repo scope (optionally `SYNC_REPO`,
+`SYNC_BRANCH`). The app then mirrors its DB to an orphan `nyx-data` branch of
+the repo (single commit, no history bloat), pulls it back on every boot when
+the local DB is empty, and re-uploads ~2 min after any write. History survives
+every refresh/redeploy.
 
-All hosts sharing those vars share one persistent history. Without the vars
-the app silently keeps local SQLite. (Instagram default cookies ship bundled
-in `backend/seed_cookies.txt` and re-apply on every boot.)
+**B. Turso remote SQLite.** Create a free Turso database (turso.tech), then set
+`TURSO_URL` (`libsql://…`) + `TURSO_TOKEN`. All hosts sharing those vars share
+one live database. Without either option the app silently keeps local SQLite.
+
+(Instagram default cookies ship bundled in `backend/seed_cookies.txt` and
+re-apply on every boot.)
 
 ---
 
@@ -238,6 +241,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | `FFMPEG_PATH` | auto-detected | path to the ffmpeg binary/directory |
 | `COOKIES_FILE` | – | Netscape cookies.txt for login-gated content (some IG/X/TikTok) |
 | `COOKIES_B64` | – | base64 of a cookies file — for ephemeral-disk hosts (Render free) where the dashboard-saved cookies die on restart; env survives |
+| `SYNC_TOKEN` | – | GitHub PAT — mirrors the DB to a repo branch so history survives restarts on ephemeral hosts (zero sign-ups) |
+| `SYNC_REPO` / `SYNC_BRANCH` | `Azrael-opm/Video_D` / `nyx-data` | where the GitHub mirror lives |
 | `TURSO_URL` | – | remote Turso/libsql DB (`libsql://…`) — history survives restarts/redeploys on ephemeral hosts |
 | `TURSO_TOKEN` | – | access token for `TURSO_URL` |
 | `COOKIES_TEXT` | – | raw cookie paste (Netscape export or `a=1; b=2`), same purpose as `COOKIES_B64`; `COOKIES_DOMAIN` picks the platform for raw pastes |

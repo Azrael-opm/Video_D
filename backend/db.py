@@ -25,6 +25,7 @@ _LOCK = threading.Lock()
 _conn: sqlite3.Connection | None = None
 _remote: Any = None
 _remote_failed = False
+DIRTY = False   # flipped on writes; cloudsync uploads after the next quiet window
 
 SETTINGS_CACHE_TTL = 5.0
 _settings_cache: tuple[float, dict[str, str]] = (0.0, {})
@@ -141,7 +142,10 @@ def _rows(cur) -> list[dict]:
 
 
 def q(sql: str, args: tuple = (), fetch: bool = True) -> Any:
+    global DIRTY
     with _LOCK:
+        if sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE", "ALTER", "CREATE")):
+            DIRTY = True
         if TURSO_URL:
             con = _remote_conn()
             if con is not None:
