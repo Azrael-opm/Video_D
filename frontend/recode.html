@@ -405,7 +405,22 @@ function fetchPlan() {
     const mb = parseFloat($("targetInput").value);
     const params = new URLSearchParams({ upload_id: state.upload.upload_id, mode: state.fn,
                                          preset: $("platformSelect").value, t: Date.now() });
-    if (state.fn === "compress") params.set("target_mb", mb || 0);
+    if (state.fn === "compress") {
+      if (!mb || mb <= 0) {
+        // No valid target yet — show a hint instead of spamming 422s at the server.
+        state.plan = null;
+        $("planBox").classList.remove("hidden");
+        $("planRating").className = "text-xs font-bold px-2.5 py-1 rounded-lg bg-mist text-smoke";
+        $("planRating").textContent = "Pick a size";
+        $("planSize").textContent = "";
+        $("planNote").textContent = "Enter a target size (or tap a chip) to see the plan.";
+        $("planWarns").innerHTML = "";
+        $("planVbr").textContent = $("planAbr").textContent = $("planRes").textContent = $("planEnc").textContent = "—";
+        $("recodeBtn").disabled = true;
+        return;
+      }
+      params.set("target_mb", mb);
+    }
     try {
       const plan = await api(`/api/recode/plan?${params}`);
       state.plan = plan;
@@ -440,7 +455,7 @@ function renderPlan(p) {
   $("planRating").textContent = RATING_LABEL[p.rating];
   if (p.mode === "compress") {
     $("planSize").textContent = `${p.original_mb} MB → ~${p.estimated_mb} MB`;
-    $("planEnc").textContent = "2-pass H.264 + AAC";
+    $("planEnc").textContent = state.fast ? "Fast · 1-pass H.264 + AAC" : "Precise · 2-pass H.264 + AAC";
     $("planVbr").textContent = `${p.video_kbps.toLocaleString()} kb/s`;
     $("planAbr").textContent = p.audio_kbps ? `AAC ${p.audio_kbps} kb/s` : "no audio track";
   } else if (p.mode === "sync") {
@@ -471,8 +486,8 @@ function paintSpeed() {
   $("speedFast").className = `rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left ${state.fast ? on : off}`;
   $("speedExact").className = `rounded-xl border px-3 py-2.5 text-sm font-semibold transition text-left ${state.fast ? off : on}`;
 }
-$("speedFast").addEventListener("click", () => { state.fast = true; paintSpeed(); });
-$("speedExact").addEventListener("click", () => { state.fast = false; paintSpeed(); });
+$("speedFast").addEventListener("click", () => { state.fast = true; paintSpeed(); fetchPlan(); });
+$("speedExact").addEventListener("click", () => { state.fast = false; paintSpeed(); fetchPlan(); });
 paintSpeed();
 $("planBtn").addEventListener("click", fetchPlan);
 
