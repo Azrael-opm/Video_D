@@ -119,14 +119,19 @@ def _remote_conn():
         for stmt in (s for s in SCHEMA.split(";") if s.strip()):
             _remote.execute(stmt)
         try:
-            cols = [r[0] for r in
+            # PRAGMA table_info rows are (cid, name, type, …) — name is index 1
+            cols = [r[1] for r in
                     _remote.execute("PRAGMA table_info(jobs)").fetchall()]
         except Exception:  # noqa: BLE001
             cols = []
-        if cols and "error_log" not in cols:
-            _remote.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
-        if cols and "recode_fast" not in cols:
-            _remote.execute("ALTER TABLE jobs ADD COLUMN recode_fast INTEGER")
+        for stmt in ("ALTER TABLE jobs ADD COLUMN error_log TEXT",
+                     "ALTER TABLE jobs ADD COLUMN recode_fast INTEGER"):
+            col = stmt.split()[-2]
+            if cols and col not in cols:
+                try:
+                    _remote.execute(stmt)
+                except Exception:  # noqa: BLE001 — already exists ⇒ fine
+                    pass
     except Exception as exc:  # noqa: BLE001
         print(f"[db] remote DB unavailable ({exc}); using local SQLite")
         _remote_failed = True

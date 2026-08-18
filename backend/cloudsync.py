@@ -39,7 +39,8 @@ _last_sync = 0.0
 
 
 def _enabled() -> bool:
-    return bool(TOKEN)
+    # Turso (live remote DB) supersedes the GitHub mirror when configured.
+    return bool(TOKEN) and not db.TURSO_URL
 
 
 def _api(path: str, method: str = "GET", payload: dict | None = None) -> httpx.Response:
