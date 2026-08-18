@@ -576,22 +576,37 @@ function ring(pct, size=54, label){
 }
 
 /* ---------- charts ---------- */
-function barChart(el, points, opts={}) {
-  const W=560,H=150,pad=6;
+function waveChart(el, points, opts={}) {
+  const W=560,H=150,padX=6,padT=12,padB=20;
   if (!points.length) { el.innerHTML='<p class="text-smoke text-xs py-10 text-center">No data yet.</p>'; return; }
   const max=Math.max(...points.map(p=>p.v),1);
-  const bw=W/points.length;
-  const bars=points.map((p,i)=>{
-    const h=Math.max(2,p.v/max*(H-32));
-    const title=`${p.label}: ${opts.fmt?opts.fmt(p.v):p.v}`;
-    return `<rect x="${(i*bw+1).toFixed(1)}" y="${(H-h-pad).toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="url(#bg${el.id})" opacity="0.9"><title>${esc(title)}</title></rect>`;
-  }).join("");
+  const n=points.length;
+  const X=i=>+(padX + i*(W-2*padX)/(n-1||1)).toFixed(1);
+  const Y=v=>+(padT + (1 - v/max)*(H-padT-padB)).toFixed(1);
+  const pts=points.map((p,i)=>[X(i),Y(p.v)]);
+  // catmull-rom → bezier for the smooth "wave"
+  let d=`M ${pts[0][0]},${pts[0][1]}`;
+  for(let i=0;i<n-1;i++){
+    const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[i+1],p3=pts[Math.min(n-1,i+2)];
+    d+=` C ${(p1[0]+(p2[0]-p0[0])/6).toFixed(1)},${(p1[1]+(p2[1]-p0[1])/6).toFixed(1)} ${(p2[0]-(p3[0]-p1[0])/6).toFixed(1)},${(p2[1]-(p3[1]-p1[1])/6).toFixed(1)} ${p2[0]},${p2[1]}`;
+  }
+  const gid=`wg${el.id}`;
+  const area=`${d} L ${pts[n-1][0]},${H-padB} L ${pts[0][0]},${H-padB} Z`;
+  const dots=n<=48?points.map((p,i)=>`<circle cx="${X(i)}" cy="${Y(p.v)}" r="2.4" fill="url(#${gid}l)"><title>${esc(p.label)}: ${opts.fmt?opts.fmt(p.v):p.v}</title></circle>`).join(""):"";
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" class="w-full">
-    <defs><linearGradient id="bg${el.id}" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="var(--g1)" stop-opacity=".7"/><stop offset="100%" stop-color="var(--g3)"/></linearGradient></defs>
-    ${bars}
-    <text x="${pad}" y="${H-5}" font-size="9" opacity="0.55" fill="currentColor">${esc(points[0].label)}</text>
-    <text x="${W-pad}" y="${H-5}" text-anchor="end" font-size="9" opacity="0.55" fill="currentColor">${esc(points[points.length-1].label)}</text></svg>`;
+    <defs>
+      <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--g3)" stop-opacity=".4"/><stop offset="100%" stop-color="var(--g1)" stop-opacity=".02"/>
+      </linearGradient>
+      <linearGradient id="${gid}l" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="var(--g1)"/><stop offset="100%" stop-color="var(--g3)"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#${gid})"/>
+    <path d="${d}" fill="none" stroke="url(#${gid}l)" stroke-width="2.5" stroke-linecap="round"/>
+    ${dots}
+    <text x="${padX}" y="${H-5}" font-size="9" opacity="0.55" fill="currentColor">${esc(points[0].label)}</text>
+    <text x="${W-padX}" y="${H-5}" text-anchor="end" font-size="9" opacity="0.55" fill="currentColor">${esc(points[n-1].label)}</text></svg>`;
 }
 
 function bars(el, dict) {
@@ -673,8 +688,8 @@ async function renderSeries(){
     bpts.push({label,v:(bmap[hr]?bmap[hr].bytes:0)});
   }
   $("jobsChartSub").textContent=`· ${jpts.reduce((a,p)=>a+p.v,0)} total`;
-  barChart($("jobsChart"), jpts);
-  barChart($("bytesChart"), bpts, {fmt:fmtBytes});
+  waveChart($("jobsChart"), jpts);
+  waveChart($("bytesChart"), bpts, {fmt:fmtBytes});
   if(LAST_STATS) LAST_STATS._spark=jpts.map(p=>p.v);
 }
 
