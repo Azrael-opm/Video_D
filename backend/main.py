@@ -670,6 +670,22 @@ def admin_jobs(request: Request, limit: int = 500, status: Optional[str] = None,
     return live_out[:limit]
 
 
+@app.get("/api/admin/jobs/{job_id}/log")
+def admin_job_log(request: Request, job_id: str):
+    """Live ffmpeg log tail for a job (recode encodes stream their console
+    log to a per-job file; the admin UI polls it while the job runs)."""
+    _actor(request)
+    jid = re.sub(r"[^a-f0-9]", "", job_id)
+    p = config.TMP_DIR / f"{jid}.ffmpeg.log"
+    lines: list[str] = []
+    if p.exists():
+        try:
+            lines = p.read_bytes()[-200_000:].decode(errors="replace").splitlines()[-300:]
+        except OSError:
+            lines = []
+    return {"lines": lines}
+
+
 @app.post("/api/admin/jobs/{job_id}/cancel")
 def admin_cancel_job(request: Request, job_id: str):
     actor = _actor(request)

@@ -96,6 +96,7 @@ class Job:
     target_mb: Optional[float] = None  # upload-recode target size
     recode_mode: Optional[str] = None  # compress | sync | repair
     recode_fast: Optional[int] = None  # 1 = single-pass "fast" compress
+    recode_meta: Optional[str] = None  # JSON {before, after} probe metadata
     finished_at: Optional[float] = None  # set when the job reaches a terminal state
     status: str = "queued"           # queued|downloading|processing|done|error
     progress: float = 0.0            # 0–100
@@ -160,6 +161,7 @@ def _persist(job: Job) -> None:
             "audio_format": job.audio_format, "image_url": job.image_url,
             "title": job.title, "client_ip": job.client_ip,
             "recode_fast": job.recode_fast,
+            "recode_meta": job.recode_meta,
             "created_at": job.created_at,
             "finished_at": job.finished_at,
         })
@@ -292,6 +294,16 @@ def _download(job: Job) -> None:
     # ---- Recode Studio: uploaded file → size-targeted two-pass encode -----
     elif job.mode == "upload_recode":
         path = _upload_recode(job)
+        # Before/after metadata for the job report (best-effort).
+        try:
+            import json as _json
+            import uploads as _up
+            src = Path(job.source_path)
+            before = {**_up.probe_media(src), "filesize": src.stat().st_size}
+            after = {**_up.probe_media(path), "filesize": path.stat().st_size}
+            job.recode_meta = _json.dumps({"before": before, "after": after})
+        except Exception:  # noqa: BLE001 — report extras must never break jobs
+            pass
     # ---- direct image download (no yt-dlp needed) -------------------------
     elif job.mode == "image":
         path = _download_image(job)
