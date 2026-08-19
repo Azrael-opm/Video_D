@@ -200,6 +200,16 @@ def compute_plan(up: Upload, target_mb: float | None, preset: str = "none",
     # ---- Compress to target size --------------------------------------------
     spec = PLATFORM_SPECS.get(preset, PLATFORM_SPECS["none"])
     warnings: list[str] = []
+    if width * height >= 2560 * 1440:
+        try:
+            mem_kb = next(int(l.split()[1]) for l in open("/proc/meminfo")
+                          if l.startswith("MemTotal:"))
+        except OSError:
+            mem_kb = 2_000_000
+        if mem_kb < 2_000_000:
+            warnings.append("2K/4K on a small host: the encoder switches to a "
+                            "memory-safe fast preset so the job fits in RAM — "
+                            "slight quality trade-off at the same target size.")
     if target_mb is None:
         raise ValueError("Pick a target size to compress to.")
     target_bytes = target_mb * 1024 * 1024

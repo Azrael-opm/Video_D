@@ -641,6 +641,29 @@ def _ffmpeg_with_progress(cmd: list, job: Job, duration: float,
         raise RuntimeError(f"FFmpeg failed (exit {rc}){note}: {tail.strip()[-300:]}")
 
 
+def _recode_tune(probe: dict) -> list[str]:
+    """Encoder preset/threads tuned to frame size × host RAM.
+
+    2K/4K frames are ~5-12 MB each; x264 lookahead + decoder buffers of that
+    size OOM a 512 MB-1 GB box (exit -9) and crawl on 1-2 threads. Big frames
+    on small hosts get a memory-safe ultrafast config; big frames on bigger
+    hosts get superfast; everything else keeps the usual veryfast."""
+    px = int(probe.get("width") or 0) * int(probe.get("height") or 0)
+    big = px >= 2560 * 1440
+    if not big:
+        return ["-preset", "veryfast", "-threads", ENC_THREADS]
+    try:
+        kb = next(int(l.split()[1]) for l in open("/proc/meminfo")
+                  if l.startswith("MemTotal:"))
+    except OSError:
+        kb = 2_000_000
+    if kb < 2_000_000:
+        return ["-preset", "ultrafast", "-threads", "1",
+                "-x264-params", "rc-lookahead=5:sync-lookahead=0:bframes=1"]
+    return ["-preset", "superfast", "-threads", ENC_THREADS,
+            "-x264-params", "rc-lookahead=20"]
+
+
 def _upload_recode(job: Job) -> Path:
     """Recode Studio worker — three functions:
 
@@ -672,6 +695,7 @@ def _upload_recode(job: Job) -> Path:
     job.progress = 5.0
     job.status = "processing"
     _check_cancel(job)
+    tune = _recode_tune(up.probe or {})
 
     # ---- repair: stream-copy remux first, re-encode only if forced --------
     if mode == "repair":
@@ -689,7 +713,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "veryfast", "-threads", ENC_THREADS, "-crf", "16", "-fps_mode", "cfr",
+               *tune, "-crf", "16", "-fps_mode", "cfr",
                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats",
                str(out)]
@@ -705,7 +729,7 @@ def _upload_recode(job: Job) -> Path:
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-preset", "veryfast", "-threads", ENC_THREADS, "-crf", "18", "-fps_mode", "cfr",
+               *tune, "-crf", "18", "-fps_mode", "cfr",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
         cmd += ["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr else ["-an"]
         cmd.append(str(out))
@@ -727,7 +751,7 @@ def _upload_recode(job: Job) -> Path:
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
                "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
                "-bufsize", f"{int(vbr * 2.6)}k",
-               "-preset", "veryfast", "-threads", ENC_THREADS, "-fps_mode", "cfr",
+               *tune, "-fps_mode", "cfr",
                "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
         cmd += (["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr
                 else ["-an"])
@@ -745,7 +769,7 @@ def _upload_recode(job: Job) -> Path:
     cmd1 = [config.FFMPEG_PATH, "-y", *common_in,
             "-c:v", "libx264", "-b:v", f"{vbr}k",
             "-maxrate", f"{int(vbr * 1.3)}k", "-bufsize", f"{int(vbr * 2.6)}k",
-            "-preset", "veryfast", "-threads", ENC_THREADS,
+            *tune,
             "-fps_mode", "cfr", "-pass", "1", "-passlogfile", passlog,
             "-an", "-progress", "pipe:1", "-nostats", "-f", "null", os.devnull]
     _ffmpeg_with_progress(cmd1, job, duration, 5.0, 40.0)
@@ -757,7 +781,7 @@ def _upload_recode(job: Job) -> Path:
             "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
             "-bufsize", f"{int(vbr * 2.6)}k",
-            "-preset", "veryfast", "-threads", ENC_THREADS, "-pass", "2", "-passlogfile", passlog,
+            *tune, "-pass", "2", "-passlogfile", passlog,
             "-fps_mode", "cfr",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
     if abr:
