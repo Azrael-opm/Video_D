@@ -428,7 +428,7 @@
     <div class="flex items-center justify-between px-5 py-4 border-b border-hairline">
       <div class="flex items-center gap-2">
         <svg class="text-red-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-        <h3 class="font-semibold text-sm">Job diagnostic report</h3>
+        <h3 class="font-semibold text-sm">Diagnostic report</h3>
       </div>
       <button id="reportCloseBtn" class="text-smoke hover:text-ink text-lg leading-none px-2" aria-label="Close">×</button>
     </div>
@@ -451,7 +451,7 @@ let TOKEN = null;
 let state = { cookieDomains: {}, cookieEditDomain: null };
 try { TOKEN = localStorage.getItem("nyx-admin-token"); } catch (e) {}
 let timer = null, tickTimer = null, currentTab = "overview";
-let LAST_JOBS = [], LAST_STATS = null, lastRefresh = Date.now();
+let LAST_JOBS = [], LAST_SELFTEST = [], LAST_STATS = null, lastRefresh = Date.now();
 const TITLES = { overview:"Overview", jobs:"Jobs", health:"Platform health", abuse:"Abuse",
                  settings:"Settings", security:"Security", maintenance:"Maintenance" };
 
@@ -787,6 +787,16 @@ function openReport(jobId){
   $("reportBody").textContent=buildJobReport(j);
   $("reportModal").classList.remove("hidden");
 }
+
+function openSelftestReport(id){
+  const t=LAST_SELFTEST.find(x=>x.id===id);
+  if(!t) return;
+  const L=["NyxDownloader — platform self-test report",
+           "time: "+new Date((t.ts||0)*1000).toISOString(), ""];
+  L.push(t.detail || t.note || "(no detail stored — run a new self-test)");
+  $("reportBody").textContent=L.join("\n");
+  $("reportModal").classList.remove("hidden");
+}
 $("reportCloseBtn").addEventListener("click",()=>$("reportModal").classList.add("hidden"));
 $("reportModal").addEventListener("click",(e)=>{ if(e.target===$("reportModal")) $("reportModal").classList.add("hidden"); });
 $("reportCopyBtn").addEventListener("click", async ()=>{
@@ -813,13 +823,16 @@ async function renderHealth(){
       <div class="h-1.5 rounded-full bg-mist overflow-hidden"><div class="bar-anim ${col} h-full rounded-full" style="width:${Math.max(3,rate)}%"></div></div>
       ${p.top_errors.length?`<div class="mt-1.5 space-y-0.5">${p.top_errors.map(e=>`<p class="text-[11px] text-smoke truncate" title="${esc(e.error)}">↳ ${esc(e.error)} (${e.n})</p>`).join("")}</div>`:""}
     </div>`;}).join(""):'<p class="text-smoke text-sm">No download history yet.</p>';
+  LAST_SELFTEST = h.selftest;
   $("selftestRows").innerHTML=h.selftest.length?h.selftest.map(t=>`
     <div class="flex items-center gap-2.5 text-sm">
       <span class="w-2 h-2 rounded-full shrink-0 ${t.ok?"bg-emerald-500":"bg-red-500"}" style="box-shadow:0 0 8px currentColor"></span>
       <span class="font-medium capitalize w-36 shrink-0">${esc(t.platform)}</span>
       <span class="text-smoke text-xs flex-1 truncate" title="${esc(t.note)}">${esc(t.note)}</span>
+      <button data-streport="${t.id}" class="text-indigo-600 dark:text-indigo-300 hover:underline text-xs shrink-0">report</button>
       <span class="text-smoke text-[11px] shrink-0">${timeAgo(t.ts)}</span></div>`).join("")
     :'<p class="text-smoke text-xs">No self-test results yet — run one.</p>';
+  document.querySelectorAll("[data-streport]").forEach(b=>b.onclick=()=>openSelftestReport(+b.dataset.streport));
 }
 $("selftestBtn").addEventListener("click", async ()=>{
   $("selftestBtn").disabled=true; $("selftestBtn").textContent="Testing…";

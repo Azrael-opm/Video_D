@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS health_checks (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, platform TEXT, ok INTEGER, note TEXT
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, platform TEXT, ok INTEGER,
+  note TEXT, detail TEXT
 );
 """
 
@@ -103,6 +104,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN error_log TEXT")
     if "recode_fast" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN recode_fast INTEGER")
+    hcols = {r[1] for r in conn.execute("PRAGMA table_info(health_checks)")}
+    if "detail" not in hcols:
+        conn.execute("ALTER TABLE health_checks ADD COLUMN detail TEXT")
 
 
 def _remote_conn():
@@ -132,6 +136,16 @@ def _remote_conn():
                     _remote.execute(stmt)
                 except Exception:  # noqa: BLE001 — already exists ⇒ fine
                     pass
+        try:
+            hcols = [r[1] for r in
+                     _remote.execute("PRAGMA table_info(health_checks)").fetchall()]
+        except Exception:  # noqa: BLE001
+            hcols = []
+        if hcols and "detail" not in hcols:
+            try:
+                _remote.execute("ALTER TABLE health_checks ADD COLUMN detail TEXT")
+            except Exception:  # noqa: BLE001 — already exists ⇒ fine
+                pass
     except Exception as exc:  # noqa: BLE001
         print(f"[db] remote DB unavailable ({exc}); using local SQLite")
         _remote_failed = True
@@ -413,9 +427,9 @@ def get_setting(key: str) -> str:
     return all_settings().get(key, SETTING_DEFAULTS.get(key, ""))
 
 
-def health_save(platform: str, ok: bool, note: str) -> None:
-    q("INSERT INTO health_checks (ts, platform, ok, note) VALUES (?,?,?,?)",
-      (time.time(), platform, 1 if ok else 0, note[:300]), fetch=False)
+def health_save(platform: str, ok: bool, note: str, detail: str = "") -> None:
+    q("INSERT INTO health_checks (ts, platform, ok, note, detail) VALUES (?,?,?,?,?)",
+      (time.time(), platform, 1 if ok else 0, note[:300], detail[:4000]), fetch=False)
 
 
 def health_latest() -> list[dict]:

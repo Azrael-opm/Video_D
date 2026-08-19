@@ -780,27 +780,48 @@ def _run_selftest() -> None:
     def probe(item):
         platform, url = item
         t0 = time.time()
+        head = [f"platform: {platform}", f"url tested: {url}"]
         try:
             info = extractors.analyze(url)
             secs = round(time.time() - t0, 1)
+            vids = info.get("video_options") or []
+            imgs = info.get("image_options") or []
+            auds = info.get("audio_options") or []
             kinds = []
-            if info.get("video_options"):
+            if vids:
                 kinds.append("video")
-            if info.get("image_options"):
+            if imgs:
                 kinds.append("images")
-            if info.get("audio_options"):
+            if auds:
                 kinds.append("audio")
+            detail = "\n".join(head + [
+                f"status: OK after {secs}s",
+                f"video options: {', '.join(v['label'] for v in vids) or 'none'}",
+                f"image options: {len(imgs) or 'none'}",
+                f"audio options: {', '.join(a['audio_format'] for a in auds) or 'none'}",
+                f"title: {info.get('title') or '—'}",
+                f"uploader: {info.get('uploader') or '—'}",
+            ])
             db.health_save(platform, True,
-                           f"self-test ✔ {secs}s — serves {'+'.join(kinds) or 'ok'}")
+                           f"self-test ✔ {secs}s — serves {'+'.join(kinds) or 'ok'}",
+                           detail)
         except Exception as exc:  # noqa: BLE001
             secs = round(time.time() - t0, 1)
             msg = str(exc)[:180]
             blocked = any(k in msg.lower() for k in
                           ("bot", "login", "cookies", "unauthorized", "datacenter", "blocked"))
+            detail = "\n".join(head + [
+                f"status: FAILED after {secs}s",
+                f"error: {str(exc)[:600]}",
+                ("hint: this platform is gating datacenter IPs — cookies "
+                 "(Admin → Security) or residential hosting lift it." if blocked else
+                 "hint: retry later; if persistent, check the Platform quirks notes "
+                 "or update yt-dlp (entrypoint self-updates on boot)."),
+            ])
             note = (f"self-test ✘ {secs}s — IP blocked / login-gated from this server "
                     f"(expected on datacenter IPs; cookies or residential hosting lift it)"
                     if blocked else f"self-test ✘ {secs}s — {msg}")
-            db.health_save(platform, not blocked, note)
+            db.health_save(platform, not blocked, note, detail)
     try:
         with ThreadPoolExecutor(max_workers=3) as ex:
             list(ex.map(probe, _TEST_URLS.items()))
