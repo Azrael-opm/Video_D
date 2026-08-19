@@ -139,6 +139,10 @@ def friendly_fetch_error(platform: str, url: str, raw: str) -> str:
     if platform == "reddit" and ("403" in raw or "blocked" in low):
         return ("Reddit is blocking this server's network outright (datacenter IPs). "
                 "(Operators: Reddit cookies or residential hosting lift this.)")
+    if platform == "tiktok":
+        return ("TikTok is bot-checking this server right now — usually temporary, "
+                "try again in a minute. (Operators: TikTok cookies in Admin → "
+                "Security lift the gate.)")
     loginish = any(k in low for k in ("login", "sign in", "cookies", "private"))
     if loginish:
         if platform in COOKIE_CAPABLE_PLATFORMS:
