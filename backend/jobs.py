@@ -96,6 +96,7 @@ class Job:
     target_mb: Optional[float] = None  # upload-recode target size
     recode_mode: Optional[str] = None  # compress | sync | repair
     recode_fast: Optional[int] = None  # 1 = single-pass "fast" compress
+    finished_at: Optional[float] = None  # set when the job reaches a terminal state
     status: str = "queued"           # queued|downloading|processing|done|error
     progress: float = 0.0            # 0–100
     speed: Optional[float] = None    # bytes/sec
@@ -148,6 +149,8 @@ def create_job(url: str, mode: str, height: int | None, audio_format: str | None
 
 def _persist(job: Job) -> None:
     """Mirror a job into SQLite (history survives restarts)."""
+    if job.status in ("done", "error", "cancelled") and not job.finished_at:
+        job.finished_at = time.time()   # on the object too — admin snapshots read it
     try:
         db.job_upsert({
             "id": job.id, "url": job.url, "mode": job.mode, "platform": job.platform,
@@ -158,7 +161,7 @@ def _persist(job: Job) -> None:
             "title": job.title, "client_ip": job.client_ip,
             "recode_fast": job.recode_fast,
             "created_at": job.created_at,
-            "finished_at": time.time() if job.status in ("done", "error", "cancelled") else None,
+            "finished_at": job.finished_at,
         })
     except Exception:  # noqa: BLE001 — persistence must never break downloads
         pass
