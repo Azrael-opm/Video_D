@@ -1064,17 +1064,24 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
     the public tikwm API still serves watermark-free CDN urls. The free tier
     allows ~1 req/s, so retry gently."""
     data = None
-    for _ in range(3):
+    # GET/POST rotation — the free tier shares one req/s per egress IP and
+    # some cloud ASNs get throttled; alternating verbs + gentle spacing
+    # squeezes through most of the time.
+    for attempt in range(4):
         try:
             with httpx.Client(headers=HTTP_HEADERS, timeout=20,
                               follow_redirects=True) as c:
-                d = c.get("https://www.tikwm.com/api/?hd=1&url=" + url).json()
+                if attempt % 2 == 0:
+                    d = c.get("https://www.tikwm.com/api/?hd=1&url=" + url).json()
+                else:
+                    d = c.post("https://www.tikwm.com/api/",
+                               data={"url": url, "hd": "1"}).json()
             data = d.get("data") if isinstance(d, dict) else None
             if data and (data.get("play") or data.get("images")):
                 break
         except Exception:  # noqa: BLE001
             return None
-        time.sleep(1.2)
+        time.sleep(1.3)
     if not data or not (data.get("play") or data.get("images")):
         return None
 
