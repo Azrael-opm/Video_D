@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import html as html_mod
 import json
+import random
 import re
 import time
 from typing import Any, Optional
@@ -173,12 +174,12 @@ def yt_gated_error(raw: str) -> bool:
                                   "unavailable", "403", "confirm", "drm"))
 
 
-def youtube_client_ladder(url: str) -> Optional[dict]:
+def youtube_client_ladder(url: str, with_cookies: bool = False) -> Optional[dict]:
     """Retry metadata extraction with alternate player clients; first success
     wins. Returns None when every client is gated."""
     for client in YT_ALT_CLIENTS:
         try:
-            opts = base_opts()
+            opts = base_opts(with_cookies=with_cookies)
             opts["extractor_args"] = {**opts.get("extractor_args", {}),
                                       "youtube": {"player_client": [client]}}
             with YoutubeDL(opts) as ydl:
@@ -534,7 +535,7 @@ def _og_fallback(url: str, platform: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 # yt-dlp option builders
 # ---------------------------------------------------------------------------
-def base_opts(*, skip_download: bool = True) -> dict[str, Any]:
+def base_opts(*, skip_download: bool = True, with_cookies: bool = False) -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -546,16 +547,31 @@ def base_opts(*, skip_download: bool = True) -> dict[str, Any]:
     }
     if config.FFMPEG_PATH:
         opts["ffmpeg_location"] = config.FFMPEG_PATH
-    if config.COOKIES_FILE:
+    # Cookies are a rescue tool, not the default: presenting a logged-in
+    # session from a datacenter IP is what trips "suspicious activity"
+    # warnings, so they're attached only when the caller escalates to them.
+    if with_cookies and config.COOKIES_FILE:
         opts["cookiefile"] = config.COOKIES_FILE
     return opts
 
 
-def opts_for_platform(platform: str, *, skip_download: bool = True) -> dict[str, Any]:
+def cookies_configured() -> bool:
+    return bool(config.COOKIES_FILE)
+
+
+def gateish(raw: str) -> bool:
+    """Does this failure look like the platform gating anonymous traffic?"""
+    low = raw.lower()
+    return any(k in low for k in ("login", "sign in", "cookie", "private", "bot",
+                                  "unexpected", "empty", "unavailable", "403", "blocked"))
+
+
+def opts_for_platform(platform: str, *, skip_download: bool = True,
+                      with_cookies: bool = False) -> dict[str, Any]:
     """base_opts plus platform tweaks. For YouTube the merged player-client
     set is essential: when the web client is bot-gated yt-dlp otherwise
     *silently* degrades to the android client's 360p-only streams."""
-    opts = base_opts(skip_download=skip_download)
+    opts = base_opts(skip_download=skip_download, with_cookies=with_cookies)
     if platform == "youtube":
         opts["extractor_args"] = {**opts.get("extractor_args", {}),
                                   "youtube": {"player_client": [YT_PRIMARY_CLIENTS]}}
@@ -632,10 +648,21 @@ def analyze(url: str) -> dict[str, Any]:
             with YoutubeDL(opts_for_platform(platform)) as ydl:
                 info = ydl.extract_info(normalize_media_url(url), download=False)
         except (DownloadError, ExtractorError) as exc:
+            # Escalate to stored cookies ONLY when the anonymous attempt was
+            # gated — the account stays out of every request that doesn't
+            # need it (fewer cookies-from-datacenter hits = fewer "suspicious
+            # activity" warnings). Small human-ish pause before the retry.
+            if cookies_configured() and gateish(str(exc)):
+                time.sleep(random.uniform(0.5, 1.5))
+                try:
+                    with YoutubeDL(opts_for_platform(platform, with_cookies=True)) as ydl:
+                        info = ydl.extract_info(normalize_media_url(url), download=False)
+                except (DownloadError, ExtractorError):
+                    pass
             # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
             # public syndication CDN is not — return direct .mp4 variants.
             # fxtwitter covers sensitive-content tweets the CDN tombstones.
-            if platform == "twitter":
+            if info is None and platform == "twitter":
                 syn = _twitter_anon_fetch(url)
                 if syn and (syn["video_options"] or syn["image_options"]):
                     return _syn_response(url, platform, syn)
@@ -649,8 +676,8 @@ def analyze(url: str) -> dict[str, Any]:
             # images anyway: platform-native APIs first, then OpenGraph metadata.
             if info is None and platform == "youtube" and yt_gated_error(str(exc)):
                 # Bot-check on the default client — alternate clients often pass.
-                info = youtube_client_ladder(url)
-            if platform == "pinterest":
+                info = youtube_client_ladder(url, with_cookies=cookies_configured())
+            if info is None and platform == "pinterest":
                 info = _pinterest_fallback(url)
             if info is None and platform == "instagram":
                 info = _instagram_fallback(url)
