@@ -775,27 +775,35 @@ _selftest_state = {"running": False}
 
 
 def _run_selftest() -> None:
+    """Probe every supported platform and file a report row in Platform
+    health (ok/failed, what it serves, how long it took, why it failed)."""
+    def probe(item):
+        platform, url = item
+        t0 = time.time()
+        try:
+            info = extractors.analyze(url)
+            secs = round(time.time() - t0, 1)
+            kinds = []
+            if info.get("video_options"):
+                kinds.append("video")
+            if info.get("image_options"):
+                kinds.append("images")
+            if info.get("audio_options"):
+                kinds.append("audio")
+            db.health_save(platform, True,
+                           f"self-test ✔ {secs}s — serves {'+'.join(kinds) or 'ok'}")
+        except Exception as exc:  # noqa: BLE001
+            secs = round(time.time() - t0, 1)
+            msg = str(exc)[:180]
+            blocked = any(k in msg.lower() for k in
+                          ("bot", "login", "cookies", "unauthorized", "datacenter", "blocked"))
+            note = (f"self-test ✘ {secs}s — IP blocked / login-gated from this server "
+                    f"(expected on datacenter IPs; cookies or residential hosting lift it)"
+                    if blocked else f"self-test ✘ {secs}s — {msg}")
+            db.health_save(platform, not blocked, note)
     try:
-        for platform, url in _TEST_URLS.items():
-            try:
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(extractors.analyze, url)
-                    info = fut.result(timeout=30)
-                kinds = []
-                if info.get("video_options"):
-                    kinds.append("video")
-                if info.get("image_options"):
-                    kinds.append("images")
-                if info.get("audio_options"):
-                    kinds.append("audio")
-                db.health_save(platform, True, "+".join(kinds) or "ok")
-            except Exception as exc:  # noqa: BLE001
-                msg = str(exc)[:200]
-                blocked = any(k in msg.lower() for k in
-                              ("bot", "login", "cookies", "unauthorized", "datacenter", "blocked"))
-                note = ("IP blocked / login-gated from this server — expected on datacenter IPs"
-                        if blocked else msg)
-                db.health_save(platform, not blocked, note)
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            list(ex.map(probe, _TEST_URLS.items()))
     finally:
         _selftest_state["running"] = False
 

@@ -8,8 +8,8 @@ YouTube) plus thousands more.
 Watermark notes
 ---------------
 * TikTok   — yt-dlp's TikTok extractor returns the clean (watermark-free)
-             rendition by default; we also pass extractor args that prefer
-             the no-watermark API endpoints.
+             rendition by default; when TikTok bot-gates datacenter IPs the
+             tikwm fallback serves watermark-free CDN urls instead.
 * Others   — Reels, Shorts, tweets, Reddit/FB/Snap videos are served as
              the original uploaded file, so there is no watermark to strip.
 """
@@ -18,6 +18,7 @@ from __future__ import annotations
 import html as html_mod
 import json
 import re
+import time
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
@@ -538,10 +539,6 @@ def base_opts(*, skip_download: bool = True) -> dict[str, Any]:
         "socket_timeout": config.SOCKET_TIMEOUT,
         "retries": config.RETRIES,
         "extractor_retries": 2,
-        # Prefer watermark-free renditions on TikTok where the extractor
-        # exposes the choice.
-        "extractor_args": {"tiktok": ["api_hostname=api16-normal-c-useast1a.tiktokv.com",
-                                       "app_version=39.1.3"]},
     }
     if config.FFMPEG_PATH:
         opts["ffmpeg_location"] = config.FFMPEG_PATH
@@ -637,19 +634,12 @@ def analyze(url: str) -> dict[str, Any]:
             if platform == "twitter":
                 syn = _twitter_anon_fetch(url)
                 if syn and (syn["video_options"] or syn["image_options"]):
-                    vo, io_, ao = syn["video_options"], syn["image_options"], syn["audio_options"]
-                    if vo:
-                        io_ = []
-                    meta = PLATFORM_META.get(platform, PLATFORM_META["generic"])
-                    return {
-                        "url": url, "platform": platform,
-                        "platform_name": meta["name"], "platform_color": meta["color"],
-                        "title": syn["title"], "uploader": syn["uploader"],
-                        "duration": syn["duration"], "thumbnail": syn["thumbnail"],
-                        "webpage_url": url,
-                        "content_type": "video" if vo else ("image" if io_ else "audio"),
-                        "video_options": vo, "audio_options": ao, "image_options": io_,
-                    }
+                    return _syn_response(url, platform, syn)
+            # TikTok bot-gates datacenter IPs — tikwm serves the clean CDN urls.
+            if info is None and platform == "tiktok":
+                syn = _tiktok_fallback(url)
+                if syn and (syn["video_options"] or syn["image_options"]):
+                    return _syn_response(url, platform, syn)
             # Image posts make several extractors bail ("No video formats found",
             # "There is no video in this post", …). Layered fallbacks recover the
             # images anyway: platform-native APIs first, then OpenGraph metadata.
@@ -781,6 +771,14 @@ def analyze(url: str) -> dict[str, Any]:
     syn_meta: dict = {}
     if platform == "twitter" and not video_options:
         syn = _twitter_anon_fetch(url)
+        if syn:
+            video_options = syn["video_options"]
+            audio_options = audio_options or syn["audio_options"]
+            if not image_options:
+                image_options = syn["image_options"]
+            syn_meta = syn
+    if platform == "tiktok" and not video_options:
+        syn = _tiktok_fallback(url)
         if syn:
             video_options = syn["video_options"]
             audio_options = audio_options or syn["audio_options"]
@@ -1040,6 +1038,69 @@ def _twitter_anon_fetch(url: str) -> Optional[dict]:
     """Anonymous X media: syndication CDN first, then fxtwitter (which also
     covers sensitive-content tweets the CDN tombstones)."""
     return _twitter_syndication(url) or _twitter_fxtwitter(url)
+
+
+def _syn_response(url: str, platform: str, syn: dict) -> dict:
+    """Shared analyzer response for anonymous fallback sources."""
+    vo, io_, ao = syn["video_options"], syn["image_options"], syn["audio_options"]
+    if vo:
+        io_ = []
+    meta = PLATFORM_META.get(platform, PLATFORM_META["generic"])
+    return {"url": url, "platform": platform,
+            "platform_name": meta["name"], "platform_color": meta["color"],
+            "title": syn["title"], "uploader": syn["uploader"],
+            "duration": syn["duration"], "thumbnail": syn["thumbnail"],
+            "webpage_url": url,
+            "content_type": "video" if vo else ("image" if io_ else "audio"),
+            "video_options": vo, "audio_options": ao, "image_options": io_}
+
+
+def _tiktok_fallback(url: str) -> Optional[dict]:
+    """TikTok bot-gates yt-dlp from datacenter IPs ("Unexpected response…");
+    the public tikwm API still serves watermark-free CDN urls. The free tier
+    allows ~1 req/s, so retry gently."""
+    data = None
+    for _ in range(3):
+        try:
+            with httpx.Client(headers=HTTP_HEADERS, timeout=20,
+                              follow_redirects=True) as c:
+                d = c.get("https://www.tikwm.com/api/?hd=1&url=" + url).json()
+            data = d.get("data") if isinstance(d, dict) else None
+            if data and (data.get("play") or data.get("images")):
+                break
+        except Exception:  # noqa: BLE001
+            return None
+        time.sleep(1.2)
+    if not data or not (data.get("play") or data.get("images")):
+        return None
+
+    def abs_url(u):
+        if not u:
+            return None
+        return u if u.startswith("http") else "https://www.tikwm.com" + u
+
+    videos = []
+    hd, sd = abs_url(data.get("hd_play")), abs_url(data.get("play"))
+    if hd:
+        videos.append({"kind": "video", "height": None, "label": "HD · no watermark",
+                       "filesize": data.get("hd_size"), "is_estimate": False,
+                       "direct_url": hd})
+    if sd:
+        videos.append({"kind": "video", "height": None, "label": "SD · no watermark",
+                       "filesize": data.get("size"), "is_estimate": False,
+                       "direct_url": sd})
+    images = []
+    for img in data.get("images") or []:
+        u = abs_url(img.get("url") if isinstance(img, dict) else img)
+        if u:
+            images.append({"kind": "image", "url": u, "width": None,
+                           "height": None, "label": "Image", "filesize": None})
+    return {"title": (data.get("title") or "TikTok post")[:120],
+            "uploader": (data.get("author") or {}).get("nickname"),
+            "thumbnail": abs_url(data.get("cover") or data.get("origin_cover")),
+            "duration": (data.get("duration") or 0) or None,
+            "video_options": videos, "image_options": images,
+            "audio_options": _twitter_audio_for(videos)}
 
 
 def _twitter_syndication(url: str) -> Optional[dict]:
