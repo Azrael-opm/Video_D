@@ -300,7 +300,7 @@ def _pinterest_fallback(url: str) -> Optional[dict]:
     }
 
 
-def _tiktok_photo_extract(url: str) -> Optional[dict]:
+def _tiktok_photo_extract(url: str, with_cookies: bool = False) -> Optional[dict]:
     """TikTok photo posts (`/@user/photo/ID`) are 'Unsupported URL' for yt-dlp,
     and even via the /video/ alias it keeps only the music track. The web
     payload still carries every full-res slide under imagePost.images — run
@@ -315,7 +315,7 @@ def _tiktok_photo_extract(url: str) -> Optional[dict]:
     captured: dict[str, Any] = {}
     try:
         from yt_dlp.extractor.tiktok import TikTokIE
-        ydl = YoutubeDL(base_opts())
+        ydl = YoutubeDL(base_opts(with_cookies=with_cookies))
         with ydl:
             ie = TikTokIE(ydl)
             orig_web = ie._parse_aweme_video_web
@@ -348,9 +348,12 @@ def _tiktok_photo_extract(url: str) -> Optional[dict]:
                            "width": s.get("imageWidth") or iu.get("width"),
                            "height": s.get("imageHeight") or iu.get("height")})
 
-    if slides:
-        existing = {t.get("url") for t in info.get("thumbnails") or []}
-        info["thumbnails"] = [s for s in slides if s["url"] not in existing] + (info.get("thumbnails") or [])
+    if not slides:
+        # Capture hooks caught nothing (payload gated/changed) — hand back
+        # None so analyze's fallback chain (tikwm etc.) gets a chance.
+        return None
+    existing = {t.get("url") for t in info.get("thumbnails") or []}
+    info["thumbnails"] = [s for s in slides if s["url"] not in existing] + (info.get("thumbnails") or [])
     info.setdefault("webpage_url", url)
     return info
 
@@ -640,8 +643,17 @@ def analyze(url: str) -> dict[str, Any]:
 
     info: Optional[dict] = None
     # TikTok photo posts need the capture-hook extractor (yt-dlp drops slides).
+    # Anonymous first; cookies only if the anonymous attempt got gated.
     if platform == "tiktok" and "/photo/" in url:
-        info = _tiktok_photo_extract(url)
+        try:
+            info = _tiktok_photo_extract(url)
+        except (DownloadError, ExtractorError) as exc:
+            if cookies_configured() and gateish(str(exc)):
+                time.sleep(random.uniform(0.5, 1.5))
+                try:
+                    info = _tiktok_photo_extract(url, with_cookies=True)
+                except (DownloadError, ExtractorError):
+                    info = None
 
     if info is None:
         try:
@@ -818,8 +830,9 @@ def analyze(url: str) -> dict[str, Any]:
             syn_meta = syn
 
     # Photo options are for image posts only — a fetched video post should
-    # not offer cover-art photo downloads.
-    if video_options:
+    # not offer cover-art photo downloads. (TikTok /photo/ posts are the
+    # exception: the slides ARE the content, alongside the slideshow video.)
+    if video_options and not (platform == "tiktok" and "/photo/" in url):
         image_options = []
 
     if not video_options and not audio_options and not image_options:
