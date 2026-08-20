@@ -484,13 +484,15 @@ function applyJob(job) {
 }
 
 function deliverFile(job) {
-  // Direct link — the browser streams straight to disk instead of holding
-  // the whole file in a memory blob (matters for 4K on low-RAM phones).
-  // The server's Content-Disposition header carries the filename.
   els.save.href = job.download_url;
   els.save.setAttribute("download", job.filename || "download");
   els.save.classList.remove("hidden");
-  triggerSave(job.download_url, job.filename);
+  // A programmatic <a>.click() fired minutes after the user's original tap
+  // has lost its "user activation" — mobile browsers silently swallow those
+  // (the "only downloads on the second try" complaint). A same-frame
+  // navigation to an attachment URL always starts the download and never
+  // leaves the page, gesture or not.
+  window.location.href = job.download_url;
   showToast("Your download is ready — check your browser's downloads.", "success");
 }
 
@@ -625,8 +627,11 @@ function pollRow(row, jobId, st) {
       if (job.status === "downloading") { st.textContent = `${Math.round(job.progress || 0)}%`; setTimeout(tick, 900); }
       else if (job.status === "queued" || job.status === "processing") { st.textContent = `${job.status}…`; setTimeout(tick, 900); }
       else if (job.status === "done") {
-        st.textContent = "✔ saved";
-        st.className = "bulk-status text-xs text-emerald-600 dark:text-emerald-300 shrink-0 w-24 text-right";
+        // Real anchor = fresh user gesture when tapped (mobile-safe), plus
+        // an auto attempt for desktops that allow it.
+        st.innerHTML = `<a href="${job.download_url}" download="${esc(job.filename || "download")}"
+          class="text-emerald-600 dark:text-emerald-300 font-semibold underline">save</a>`;
+        st.className = "bulk-status text-xs shrink-0 w-24 text-right";
         triggerSave(job.download_url, job.filename);
       } else {
         st.textContent = "✕ failed";
