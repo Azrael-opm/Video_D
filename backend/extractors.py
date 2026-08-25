@@ -518,7 +518,22 @@ def _og_fallback(url: str, platform: str) -> Optional[dict]:
         seen.add(u)
         images.append({"url": u, "width": width, "height": height})
 
-    if not images:
+    # Public pages (Facebook especially) expose direct mp4s via og:video —
+    # a downloadable lifeline whenever yt-dlp itself is gated or confused.
+    og_videos: list[dict] = []
+    vseen: set[str] = set()
+    for key in ("og:video", "og:video:url", "og:video:secure_url", "twitter:player:stream"):
+        for u in props.get(key, []):
+            u = (u or "").strip()
+            if not u.startswith("http") or u in vseen:
+                continue
+            vseen.add(u)
+            h = _as_int(props.get("og:video:height", []))
+            og_videos.append({"kind": "video", "height": h,
+                              "label": f"{h}p" if h else "Video · original quality",
+                              "filesize": None, "is_estimate": False, "direct_url": u})
+
+    if not images and not og_videos:
         return None
 
     title = (props.get("og:title") or props.get("twitter:title") or [""])[0]
@@ -528,9 +543,10 @@ def _og_fallback(url: str, platform: str) -> Optional[dict]:
         "title": title or "Media post",
         "uploader": uploader or None,
         "duration": None,
-        "thumbnail": images[0]["url"],
+        "thumbnail": images[0]["url"] if images else None,
         "thumbnails": images,
         "formats": [],
+        "og_videos": og_videos,
         "webpage_url": url,
     }
 
@@ -828,6 +844,11 @@ def analyze(url: str) -> dict[str, Any]:
             if not image_options:
                 image_options = syn["image_options"]
             syn_meta = syn
+    if not video_options and info.get("og_videos"):
+        # og:video direct mp4s (facebook public pages) when yt-dlp couldn't help
+        video_options = info["og_videos"]
+        audio_options = audio_options or _twitter_audio_for(video_options)
+        syn_meta = info
 
     # Photo options are for image posts only — a fetched video post should
     # not offer cover-art photo downloads. (TikTok /photo/ posts are the
