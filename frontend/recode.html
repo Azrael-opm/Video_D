@@ -90,6 +90,26 @@
     .meteor { width:70px; box-shadow:0 0 6px rgba(126,240,212,.25); }
     .meteor::before { width:2px; height:2px; } }
   @media (prefers-reduced-motion: reduce) { .meteor { display:none; } }
+
+  /* ── light (gallery) mode ── */
+  html:not(.dark) { --hairline:rgba(16,20,27,.13); --surface:rgba(255,255,255,.72);
+    --surface-solid:#ffffff; --c-smoke:96 105 118; --acc:#0a9c82; --amb:rgba(47,94,255,.10); }
+  html:not(.dark) body { background:#edf0f5; color:#10141b; }
+  html:not(.dark) body::before { background:radial-gradient(46% 38% at 50% 8%, var(--amb), transparent 70%),
+    radial-gradient(120% 90% at 50% 50%, transparent 62%, rgba(148,163,184,.28) 100%); }
+  html:not(.dark) body::after { background:repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px), rgba(16,20,27,.05) calc(25% - 1px) 25%); }
+  html:not(.dark) .panel { box-shadow:0 24px 60px -30px rgba(30,40,70,.28), inset 0 1px 0 #fff; }
+  html:not(.dark) .grad-btn { border-color:rgba(10,156,130,.55); color:#0a8f76;
+    background:linear-gradient(120deg, rgba(10,156,130,.08), transparent 60%); }
+  html:not(.dark) .grad-btn:hover:not(:disabled) { background:#0a9c82; color:#fff; }
+  html:not(.dark) .meteor { background:linear-gradient(90deg, rgba(23,32,42,.7), rgba(10,156,130,.4) 40%, transparent); }
+  html:not(.dark) .meteor::before { background:#10141b; box-shadow:0 0 10px 2px rgba(10,156,130,.45); }
+  html:not(.dark) select.ss-select { background-color:#fff; color:#10141b; border-color:rgba(16,20,27,.16); }
+  html:not(.dark) select option { background:#fff; color:#10141b; }
+  html:not(.dark) .progress-track { background:rgba(16,20,27,.10); }
+  html:not(.dark) .progress-fill { background:linear-gradient(90deg,#0a9c82,#4f7df9); }
+  html:not(.dark) .fn-card.selected { border-color:rgba(10,156,130,.5); background:rgba(10,156,130,.07); }
+  html:not(.dark) #dropZone.drag { border-color:rgba(10,156,130,.5); background:rgba(10,156,130,.05); }
 </style>
 </head>
 

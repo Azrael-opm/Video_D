@@ -671,17 +671,13 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e)
 // Wiring
 // --------------------------------------------------------------
 function renderPills() {
+  // Icon-only nodes for the 3D icon cloud; names kept for a11y + detect chip.
   els.pills.innerHTML = Object.entries(PLATFORMS)
     .filter(([k]) => k !== "generic")
     .map(([key, p]) => `
-      <span class="platform-pill flex items-center gap-2 bg-surface border border-hairline rounded-full
-                   px-3.5 py-2 text-[13px] font-medium text-smoke shadow-pill transition-all
-                   ${p.hold ? "opacity-75 border-dashed" : ""}"
-            data-platform="${key}">
-        ${p.icon()} ${p.name}
-        ${p.hold ? `<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-600
-                     dark:text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-full
-                     px-1.5 py-0.5">soon</span>` : ""}
+      <span class="platform-pill${p.hold ? " hold" : ""}" data-platform="${key}"
+            title="${p.name}${p.hold ? " · soon" : ""}" aria-label="${p.name}">
+        ${p.icon()}<span class="sr-only">${p.name}</span>
       </span>`).join("");
 }
 
