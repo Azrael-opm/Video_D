@@ -344,11 +344,21 @@ def _download(job: Job) -> None:
 
 
 def _relay_download(job: Job) -> Path:
-    """Borrow a sibling host (RELAY_URL) when this host's egress is gated:
-    the sibling runs the job on its healthier IP, we stream the finished
-    file home and serve it as if we'd fetched it ourselves."""
+    """Borrow sibling hosts (RELAY_URL comma-separated list, tried in order)
+    when this host's egress is gated: the sibling runs the job on its
+    healthier IP, we stream the finished file home and serve it as if we'd
+    fetched it ourselves."""
+    last_exc = None
+    for base in [u.strip() for u in (os.getenv("RELAY_URL") or "").split(",") if u.strip()]:
+        try:
+            return _relay_download_one(job, base.rstrip("/"))
+        except Exception as exc:  # noqa: BLE001 — try the next relay
+            last_exc = exc
+    raise DownloadError(f"all relays failed: {last_exc}")
+
+
+def _relay_download_one(job: Job, base: str) -> Path:
     import httpx
-    base = os.getenv("RELAY_URL").rstrip("/")
     body: dict = {"url": job.url, "mode": job.mode, "title": job.title}
     if job.mode == "video" and job.height:
         body["height"] = job.height
