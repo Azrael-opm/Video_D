@@ -5,7 +5,6 @@
 
 "use strict";
 
-console.log("NyxDownloader app.js v12");
 
 // --------------------------------------------------------------
 // Platform branding (inline SVG — no CDN dependency)

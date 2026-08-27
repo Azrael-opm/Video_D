@@ -107,36 +107,38 @@
   .navlink:hover::after { right:0; }
 
   /* ── 3D icon cloud (dependency-free) ── */
-  #platformPills { position:relative; width:100%; max-width:430px; height:200px; margin:0 auto;
-    perspective:1000px; transform-style:preserve-3d; animation:cloudspin 30s linear infinite; }
-  #platformPills:hover { animation-play-state:paused; }
-  @keyframes cloudspin { from{transform:rotateX(-10deg) rotateY(0deg)} to{transform:rotateX(-10deg) rotateY(360deg)} }
+  #platformPills { position:relative; width:100%; max-width:480px; height:215px; margin:0 auto;
+    perspective:1100px; transform-style:preserve-3d; will-change:transform; }
   .platform-pill { position:absolute; inset:0; margin:auto; width:48px; height:48px; border-radius:9999px;
     display:grid; place-items:center; border:1px solid var(--hairline);
-    background:color-mix(in srgb, var(--surface-solid) 72%, transparent);
-    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+    background:color-mix(in srgb, var(--surface-solid) 88%, transparent);
     box-shadow:0 0 18px -6px rgba(126,240,212,.22), inset 0 1px 0 rgba(255,255,255,.06);
     transform:rotateY(var(--ry)) rotateX(var(--rx)) translateZ(var(--rz));
     transition:border-color .3s, box-shadow .3s; }
   .platform-pill svg { width:22px; height:22px; }
-  .platform-pill:nth-child(1){--ry:0deg;   --rx:6deg;  --rz:150px}
-  .platform-pill:nth-child(2){--ry:45deg;  --rx:-10deg;--rz:150px}
-  .platform-pill:nth-child(3){--ry:90deg;  --rx:8deg;  --rz:150px}
-  .platform-pill:nth-child(4){--ry:135deg; --rx:-6deg; --rz:150px}
-  .platform-pill:nth-child(5){--ry:180deg; --rx:10deg; --rz:150px}
-  .platform-pill:nth-child(6){--ry:225deg; --rx:-8deg; --rz:150px}
-  .platform-pill:nth-child(7){--ry:270deg; --rx:6deg;  --rz:150px}
-  .platform-pill:nth-child(8){--ry:315deg; --rx:-4deg; --rz:150px}
+  .platform-pill:nth-child(1){--ry:0deg;   --rx:6deg;  --rz:185px}
+  .platform-pill:nth-child(2){--ry:45deg;  --rx:-10deg;--rz:185px}
+  .platform-pill:nth-child(3){--ry:90deg;  --rx:8deg;  --rz:185px}
+  .platform-pill:nth-child(4){--ry:135deg; --rx:-6deg; --rz:185px}
+  .platform-pill:nth-child(5){--ry:180deg; --rx:10deg; --rz:185px}
+  .platform-pill:nth-child(6){--ry:225deg; --rx:-8deg; --rz:185px}
+  .platform-pill:nth-child(7){--ry:270deg; --rx:6deg;  --rz:185px}
+  .platform-pill:nth-child(8){--ry:315deg; --rx:-4deg; --rz:185px}
   .platform-pill.hold { opacity:.45; }
   .platform-pill.hold::after { content:""; position:absolute; top:1px; right:1px; width:7px; height:7px;
     border-radius:9999px; background:var(--hot); box-shadow:0 0 8px rgba(255,75,38,.7); }
   .platform-pill.active { border-color:var(--acc);
     box-shadow:0 0 30px -2px rgba(126,240,212,.65), inset 0 0 12px rgba(126,240,212,.25); }
   @media (max-width:640px){
-    #platformPills { height:160px; max-width:300px; }
+    #platformPills { height:175px; max-width:320px; }
     .platform-pill { width:40px; height:40px; }
     .platform-pill svg { width:18px; height:18px; }
-    .platform-pill:nth-child(n){--rz:108px}
+    .platform-pill:nth-child(n){--rz:128px}
+    .meteor { box-shadow:none; }
+    header, .panel { -webkit-backdrop-filter:none; backdrop-filter:none; }
+    header { background:rgba(6,6,7,.86); }
+    html:not(.dark) header { background:rgba(237,240,245,.9); }
+    .panel { background:var(--surface-solid); }
   }
 
   /* detected-platform chip above the paste box */
@@ -452,6 +454,37 @@
 </footer>
 
 
+
+<script>
+/* icon-cloud rotation: spins freely; when a platform is detected the sphere
+   eases to a stop with that icon at the front, then resumes when cleared */
+(function () {
+  var cloud = document.getElementById("platformPills");
+  if (!cloud) return;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var angle = 0, target = null, last = performance.now();
+  function tick(now) {
+    var dt = Math.min(50, now - last); last = now;
+    if (target === null) {
+      angle = (angle + dt * 0.012) % 360;              /* ~30s per revolution */
+    } else {
+      var diff = ((target - angle + 540) % 360) - 180;  /* shortest arc */
+      angle += diff * Math.min(1, dt * 0.006);
+      if (Math.abs(diff) < 0.05) angle = target;
+    }
+    cloud.style.transform = "rotateX(-10deg) rotateY(" + angle.toFixed(2) + "deg)";
+    requestAnimationFrame(tick);
+  }
+  if (!reduced) requestAnimationFrame(tick);
+  new MutationObserver(function () {
+    var act = cloud.querySelector(".platform-pill.active");
+    if (!act) { target = null; return; }
+    var idx = Array.prototype.indexOf.call(cloud.children, act);
+    target = reduced ? 0 : (-idx * 45) % 360;          /* bring it to the front */
+    if (reduced) angle = 0, cloud.style.transform = "rotateX(-10deg)";
+  }).observe(cloud, { attributes: true, attributeFilter: ["class"], subtree: true });
+})();
+</script>
 <script>
 /* detected-platform chip above the paste box */
 (function () {
@@ -465,7 +498,7 @@
       var hold = act.classList.contains("hold");
       var name = (act.getAttribute("title") || "").replace(" · soon", "");
       chip.innerHTML = (svg ? svg.outerHTML : "") +
-        "<span>" + name + (hold ? " — coming soon" : " link detected — hit fetch") + "</span>";
+        "<span>" + name + (hold ? " · soon" : "") + "</span>";
       chip.classList.add("show");
     } else {
       chip.classList.remove("show");
@@ -480,7 +513,7 @@
 (function () {
   var host = document.getElementById("meteors");
   if (!host) return;
-  var n = window.innerWidth < 640 ? 16 : 30;
+  var n = window.innerWidth < 640 ? 10 : 30;
   for (var i = 0; i < n; i++) {
     var s = document.createElement("span");
     s.className = "meteor";
