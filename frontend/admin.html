@@ -17,10 +17,10 @@
 </script>
 <link rel="stylesheet" href="/tailwind.css" />
 <style>
-  :root { --g1:#7ef0d4; --g2:#4f7df9; --g3:#ff4b26;
-    --c-ink:235 240 246; --c-smoke:132 142 156; --c-mist:15 20 30;
-    --hairline:rgba(255,255,255,.08); --surface:rgba(12,16,26,.72); --surface-solid:#0c111c;
-    --acc:#7ef0d4; --amb:rgba(47,94,255,.16); color-scheme:dark; }
+  :root { --g1:#0a9c82; --g2:#4f7df9; --g3:#ff4b26;
+    --c-ink:22 27 36; --c-smoke:100 108 120; --c-mist:238 241 247;
+    --hairline:rgba(16,20,27,.10); --surface:rgba(255,255,255,.82); --surface-solid:#ffffff;
+    --acc:#0a9c82; --amb:rgba(47,94,255,.10); color-scheme:light; }
   .dark { --g1:#7ef0d4; --g2:#4f7df9; --g3:#ff4b26;
     --c-ink:235 240 246; --c-smoke:132 142 156; --c-mist:15 20 30;
     --hairline:rgba(255,255,255,.08); --surface:rgba(12,16,26,.72); --surface-solid:#0c111c;
@@ -28,6 +28,9 @@
 
   body { background:
     radial-gradient(50% 40% at 50% 0%, var(--amb), transparent 70%), #070a10; }
+  html:not(.dark) body { background:
+    radial-gradient(50% 40% at 50% 0%, var(--amb), transparent 70%), #eef1f5; }
+  html:not(.dark) .nav-item.active { color:#06251d; }
 
 .grad-text { background:linear-gradient(90deg,#fff,var(--acc));
     -webkit-background-clip:text; background-clip:text; color:transparent; }

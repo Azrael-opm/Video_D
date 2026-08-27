@@ -115,7 +115,9 @@
     box-shadow:0 0 18px -6px rgba(126,240,212,.22), inset 0 1px 0 rgba(255,255,255,.06);
     transform:rotateY(var(--ry)) rotateX(var(--rx)) translateZ(var(--rz));
     transition:border-color .3s, box-shadow .3s; }
+  .platform-pill { color:#eef2f7; }
   .platform-pill svg { width:19px; height:19px; }
+  html:not(.dark) .platform-pill { color:#10141b; }
   .platform-pill:nth-child(1){--ry:0deg;   --rx:6deg;  --rz:185px}
   .platform-pill:nth-child(2){--ry:45deg;  --rx:-10deg;--rz:185px}
   .platform-pill:nth-child(3){--ry:90deg;  --rx:8deg;  --rz:185px}
@@ -203,7 +205,8 @@
 
   /* ── light (gallery) mode ─────────────────────────────────────── */
   html:not(.dark) { --hairline:rgba(16,20,27,.13); --surface:rgba(255,255,255,.72);
-    --surface-solid:#ffffff; --c-smoke:96 105 118; --acc:#0a9c82; --amb:rgba(47,94,255,.10); }
+    --surface-solid:#ffffff; --c-smoke:96 105 118; --acc:#0a9c82; --amb:rgba(47,94,255,.10);
+    --c-ink:16 20 27; --c-mist:235 239 246; }
   html:not(.dark) body { background:#edf0f5; color:#10141b; }
   html:not(.dark) body::before { background:
     radial-gradient(46% 38% at 50% 8%, var(--amb), transparent 70%),

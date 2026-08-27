@@ -673,11 +673,16 @@ function renderPills() {
   // Icon-only nodes for the 3D icon cloud; names kept for a11y + detect chip.
   els.pills.innerHTML = Object.entries(PLATFORMS)
     .filter(([k]) => k !== "generic")
-    .map(([key, p]) => `
+    .map(([key, p]) => {
+      // black-based brand marks (X, TikTok) vanish on dark bg — let them
+      // follow the theme via currentColor instead.
+      const c = (key === "twitter" || key === "tiktok") ? "currentColor" : undefined;
+      return `
       <span class="platform-pill${p.hold ? " hold" : ""}" data-platform="${key}"
             title="${p.name}${p.hold ? " · soon" : ""}" aria-label="${p.name}">
-        ${p.icon()}<span class="sr-only">${p.name}</span>
-      </span>`).join("");
+        ${p.icon(c)}<span class="sr-only">${p.name}</span>
+      </span>`;
+    }).join("");
 }
 
 function setActivePill(platform) {
