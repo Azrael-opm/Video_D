@@ -84,8 +84,11 @@
   @keyframes meteor {
     0%{transform:rotate(-35deg) translateX(0); opacity:0}
     4%{opacity:.9} 32%{opacity:.9}
-    50%{transform:rotate(-35deg) translateX(-70vmax); opacity:0}
-    100%{transform:rotate(-35deg) translateX(-70vmax); opacity:0} }
+    50%{transform:rotate(-35deg) translateX(-1200px); opacity:0}
+    100%{transform:rotate(-35deg) translateX(-1200px); opacity:0} }
+  @media (max-width:640px) {
+    .meteor { width:70px; box-shadow:0 0 6px rgba(126,240,212,.25); }
+    .meteor::before { width:2px; height:2px; } }
   @media (prefers-reduced-motion: reduce) { .meteor { display:none; } }
 </style>
 </head>
@@ -702,11 +705,12 @@ api("/api/recode/platforms").then((p) => { state.platforms = p; }).catch(() => {
 (function () {
   var host = document.getElementById("meteors");
   if (!host) return;
-  for (var m = 0; m < 22; m++) {
+  var n = window.innerWidth < 640 ? 12 : 22;
+  for (var i = 0; i < n; i++) {
     var s = document.createElement("span");
     s.className = "meteor";
-    s.style.left = (Math.random() * 130 - 15) + "%";
-    s.style.top = (Math.random() * 80 - 25) + "%";
+    s.style.left = (5 + i * (130 / n) + (Math.random() * 6 - 3)) + "%";
+    s.style.top = (Math.random() * 80 - 30) + "%";
     s.style.setProperty("--d", (Math.random() * 9).toFixed(2) + "s");
     s.style.setProperty("--t", (5 + Math.random() * 7).toFixed(2) + "s");
     host.appendChild(s);
