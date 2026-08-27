@@ -299,3 +299,17 @@ deps, starts the backend and the tunnel, and prints a public
 `https://….trycloudflare.com` URL to share. Your home IP is residential →
 YouTube serves the full 4K ladder, Reddit stops 403-ing; only Instagram stories
 stay account-gated (cookies unlock those). Keep Railway/Render as fallbacks.
+
+**Fix 2b — the phone IS the server (free + permanent + no PC left on).**
+Platforms blanket-block datacenter ASNs no matter which free host you pick;
+they fully trust residential IPs. An old Android phone on home WiFi is the
+cheapest residential host that exists: install Termux, then
+`bash deploy/termux.sh` — it installs python+ffmpeg+cloudflared, boots the
+backend and prints a public tunnel URL. Keep the cloud hosts as the always-on
+public front and set `RELAY_URL` on them pointing at the phone, so all
+platform fetching rides the residential IP while the cloud serves UI/files.
+
+**After the Railway trial ends (no-money stack):** Render free (public UI,
+sleeps/wakes fine) + phone via Termux (fetch leg). Relay glues them together;
+swap any leg for another free PaaS whenever one gets blocked — the architecture
+is host-agnostic.
