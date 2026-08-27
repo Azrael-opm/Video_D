@@ -202,6 +202,14 @@ npx tailwindcss -i input.css -o ../frontend/tailwind.css --minify
 `tailwind-src/tailwind.config.js` holds the theme tokens (colors are CSS-variable
 driven, so dark mode inverts automatically).
 
+After rebuilding, run the class guard — it exits non-zero if any class used in
+the markup/JS is missing from the compiled CSS (the silent "glued layout" bug
+class can never ship again):
+
+```bash
+python3 frontend/check_classes.py
+```
+
 ## Project layout
 
 ```
