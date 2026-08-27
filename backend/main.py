@@ -420,25 +420,29 @@ def _restore_cookies() -> None:
     if config.COOKIES_FILE and Path(config.COOKIES_FILE).exists():
         return
     cmap = _cookies_map()
-    if cmap:
-        _save_cookies_map(cmap)
-        return
     env_text = _env_cookies_text()
-    if env_text:
+    if env_text and not cmap:
         dom = os.getenv("COOKIES_DOMAIN", "youtube.com")
-        config.COOKIES_PATH.write_text(_to_netscape(env_text, dom), encoding="utf-8")
+        config.COOKIES_PATH.write_text(_fix_netscape(_to_netscape(env_text, dom)),
+                                       encoding="utf-8")
         config.COOKIES_FILE = str(config.COOKIES_PATH)
         return
     # Bundled default cookies (shipped with the repo, one file per platform
     # named <domain>.txt) — re-applied on every boot so ephemeral hosts keep
-    # them across redeploys. Admin edits win while the DB lives; the seed
-    # only fills an empty cookie store.
+    # them across redeploys. Missing platforms are filled in (merge, not
+    # replace) so a store that already holds one platform still gains the
+    # rest; admin-saved values always win.
     seed_dir = Path(__file__).parent / "seed_cookies"
-    if seed_dir.exists() and not _cookies_map():
-        seeds = {f.stem: f.read_text(encoding="utf-8")
-                 for f in sorted(seed_dir.glob("*.txt"))}
-        if seeds:
-            _save_cookies_map(seeds)
+    if seed_dir.exists():
+        changed = False
+        for f in sorted(seed_dir.glob("*.txt")):
+            if f.stem not in cmap:
+                cmap[f.stem] = f.read_text(encoding="utf-8")
+                changed = True
+        if changed or not config.COOKIES_FILE:
+            _save_cookies_map(cmap)
+    elif cmap:
+        _save_cookies_map(cmap)
 
 
 def _env_cookies_text() -> str | None:
