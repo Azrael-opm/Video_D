@@ -1126,9 +1126,9 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
     allows ~1 req/s, so retry gently."""
     data = None
     # GET/POST rotation — the free tier shares one req/s per egress IP and
-    # some cloud ASNs get throttled; alternating verbs + gentle spacing
-    # squeezes through most of the time.
-    for attempt in range(4):
+    # some cloud ASNs get throttled hard (shared egress = other tenants eat
+    # the quota), so give it six gently-spaced chances before giving up.
+    for attempt in range(6):
         try:
             with httpx.Client(headers=HTTP_HEADERS, timeout=20,
                               follow_redirects=True) as c:
@@ -1142,7 +1142,7 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
                 break
         except Exception:  # noqa: BLE001
             return None
-        time.sleep(1.3)
+        time.sleep(1.5)
     if not data or not (data.get("play") or data.get("images")):
         return None
 
