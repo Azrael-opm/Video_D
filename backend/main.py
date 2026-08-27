@@ -200,6 +200,24 @@ def analyze(request: Request, body: AnalyzeRequest):
     try:
         data = extractors.analyze(body.url)
     except ValueError as exc:
+        # Relay: a host whose egress is gated (Render) can borrow a sibling
+        # host's healthier IP (Railway) via RELAY_URL. One hop max.
+        relay = os.getenv("RELAY_URL")
+        if relay and "1" not in request.headers.get("x-nyx-relay", ""):
+            try:
+                import httpx as _httpx
+                r = _httpx.post(relay.rstrip("/") + "/api/analyze",
+                                json={"url": body.url}, timeout=90,
+                                headers={"User-Agent": "NyxDownloader-relay",
+                                         "X-Nyx-Relay": "1"})
+                if r.status_code == 200:
+                    data = r.json()
+                    if len(_ANALYZE_CACHE) > 200:
+                        _ANALYZE_CACHE.clear()
+                    _ANALYZE_CACHE[key] = (time.time(), data)
+                    return data
+            except Exception:  # noqa: BLE001 — relay is best-effort
+                pass
         raise HTTPException(status_code=422, detail=str(exc))
     if len(_ANALYZE_CACHE) > 200:
         _ANALYZE_CACHE.clear()

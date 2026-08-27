@@ -11,6 +11,7 @@ for Redis (the Job dataclass is already JSON-serialisable).
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import threading
@@ -308,7 +309,14 @@ def _download(job: Job) -> None:
     elif job.mode == "image":
         path = _download_image(job)
     else:
-        path = _download_with_ytdlp(job)
+        try:
+            path = _download_with_ytdlp(job)
+        except DownloadError as exc:
+            # Gated egress? Borrow the sibling host (RELAY_URL) end-to-end:
+            # it runs the job on its healthier IP and we stream the file home.
+            if not (os.getenv("RELAY_URL") and gateish(str(exc))):
+                raise
+            path = _relay_download(job)
 
     if job.mode == "preview":
         job.status = "processing"
@@ -333,6 +341,46 @@ def _download(job: Job) -> None:
     job.status = "done"
     _stat_inc("jobs_done")
     _persist(job)
+
+
+def _relay_download(job: Job) -> Path:
+    """Borrow a sibling host (RELAY_URL) when this host's egress is gated:
+    the sibling runs the job on its healthier IP, we stream the finished
+    file home and serve it as if we'd fetched it ourselves."""
+    import httpx
+    base = os.getenv("RELAY_URL").rstrip("/")
+    body: dict = {"url": job.url, "mode": job.mode, "title": job.title}
+    if job.mode == "video" and job.height:
+        body["height"] = job.height
+    if job.mode == "audio":
+        body["audio_format"] = job.audio_format or "mp3"
+    r = httpx.post(base + "/api/download", json=body, timeout=60,
+                   headers={"User-Agent": "NyxDownloader-relay",
+                            "X-Nyx-Relay": "1"})
+    if r.status_code != 200:
+        raise DownloadError(f"relay host refused the job (HTTP {r.status_code})")
+    rid = r.json()["id"]
+    st: dict = {}
+    for _ in range(900):                      # ~30 min ceiling
+        time.sleep(2)
+        st = httpx.get(f"{base}/api/jobs/{rid}", timeout=30).json()
+        job.progress = min(99.0, float(st.get("progress") or 0))
+        if st.get("status") == "done":
+            break
+        if st.get("status") in ("error", "cancelled"):
+            raise DownloadError(st.get("error") or "relay job failed")
+    else:
+        raise DownloadError("relay job timed out")
+    fn = st.get("filename") or "relay.mp4"
+    ext = fn.rsplit(".", 1)[-1] if "." in fn else "mp4"
+    dest = config.TMP_DIR / f"{job.id}.{ext}"
+    with httpx.stream("GET", f"{base}/api/jobs/{rid}/file", timeout=900,
+                      follow_redirects=True) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as fh:
+            for chunk in resp.iter_bytes(1 << 16):
+                fh.write(chunk)
+    return dest
 
 
 def _download_with_ytdlp(job: Job) -> Path:
