@@ -49,7 +49,6 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 import auth
-import cloudsync
 import config
 import db
 import extractors
@@ -77,12 +76,10 @@ def _limit(request: Request, setting_key: str) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    cloudsync.restore()          # pull history back BEFORE the db initializes
     if not db.admins_list():
         db.admin_upsert("admin", auth.hash_password(config.ADMIN_PASSWORD), None)
     _restore_cookies()
     jobstore.start_cleanup_loop()
-    cloudsync.start()
     yield
 
 
