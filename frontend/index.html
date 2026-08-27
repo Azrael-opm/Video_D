@@ -234,6 +234,12 @@
   html:not(.dark) .platform-pill.active { border-color:#0a9c82; box-shadow:0 0 26px -2px rgba(10,156,130,.55); }
   html:not(.dark) .detect-chip.show { color:#0a8f76; }
   html:not(.dark) .bg-white\/\[\.04\], html:not(.dark) .bg-white\/\[\.02\] { background:rgba(16,20,27,.045); }
+
+  /* once the entrance has played, lock it so theme toggles / reflows can
+     never restart the animations (fixes card blink on theme switch) */
+  html.loaded .rise, html.loaded .fade-up, html.loaded .ltr {
+    animation:none; opacity:1; transform:none;
+  }
 </style>
 </head>
 
@@ -544,5 +550,9 @@
 })();
 </script>
 <script src="/app.js?v=17"></script>
+
+<script>
+setTimeout(function () { document.documentElement.classList.add("loaded"); }, 2000);
+</script>
 </body>
 </html>
