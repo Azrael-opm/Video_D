@@ -107,15 +107,15 @@
   .navlink:hover::after { right:0; }
 
   /* ── 3D icon cloud (dependency-free) ── */
-  #platformPills { position:relative; width:100%; max-width:480px; height:215px; margin:0 auto;
+  #platformPills { position:relative; width:100%; max-width:480px; height:175px; margin:0 auto;
     perspective:1100px; transform-style:preserve-3d; will-change:transform; }
-  .platform-pill { position:absolute; inset:0; margin:auto; width:48px; height:48px; border-radius:9999px;
+  .platform-pill { position:absolute; inset:0; margin:auto; width:42px; height:42px; border-radius:9999px;
     display:grid; place-items:center; border:1px solid var(--hairline);
     background:color-mix(in srgb, var(--surface-solid) 88%, transparent);
     box-shadow:0 0 18px -6px rgba(126,240,212,.22), inset 0 1px 0 rgba(255,255,255,.06);
     transform:rotateY(var(--ry)) rotateX(var(--rx)) translateZ(var(--rz));
     transition:border-color .3s, box-shadow .3s; }
-  .platform-pill svg { width:22px; height:22px; }
+  .platform-pill svg { width:19px; height:19px; }
   .platform-pill:nth-child(1){--ry:0deg;   --rx:6deg;  --rz:185px}
   .platform-pill:nth-child(2){--ry:45deg;  --rx:-10deg;--rz:185px}
   .platform-pill:nth-child(3){--ry:90deg;  --rx:8deg;  --rz:185px}
@@ -292,7 +292,7 @@
   </section>
 
   <!-- ───────────────────────── Icon cloud ───────────────────────── -->
-  <section class="rise mt-2" style="--d:.55s">
+  <section class="rise -mt-2" style="--d:.55s">
     <div id="platformPills" aria-label="Supported platforms"></div>
   </section>
 
