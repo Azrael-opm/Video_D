@@ -383,13 +383,28 @@ def _cookies_map() -> dict[str, str]:
         return {}
 
 
+def _fix_netscape(text: str) -> str:
+    """Cookie jars are strict: the domain-flag column must be TRUE only when
+    the domain starts with a dot. Browser exporters (and chat mangling) break
+    this — normalize so one bad line can't sink the whole file."""
+    out = []
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            parts = line.split("\t")
+            if len(parts) >= 7:
+                parts[1] = "TRUE" if parts[0].startswith(".") else "FALSE"
+                line = "\t".join(parts)
+        out.append(line)
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
 def _save_cookies_map(cmap: dict[str, str]) -> None:
     db.set_setting("cookies_map_b64",
                    _b64.b64encode(json.dumps(cmap).encode()).decode())
     # rebuild the combined cookies.txt from every stored platform
     lines = ["# Netscape HTTP Cookie File"]
     for dom, text in cmap.items():
-        converted = _to_netscape(text, dom)
+        converted = _fix_netscape(_to_netscape(text, dom))
         lines.extend(l for l in converted.splitlines()
                      if l and not l.startswith("#"))
     config.COOKIES_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -414,12 +429,16 @@ def _restore_cookies() -> None:
         config.COOKIES_PATH.write_text(_to_netscape(env_text, dom), encoding="utf-8")
         config.COOKIES_FILE = str(config.COOKIES_PATH)
         return
-    # Bundled default cookies (shipped with the repo) — re-applied on every
-    # boot so ephemeral hosts keep them across redeploys. Admin edits win
-    # while the DB lives; the seed only fills an empty cookie store.
-    seed = Path(__file__).parent / "seed_cookies.txt"
-    if seed.exists() and not _cookies_map():
-        _save_cookies_map({"instagram.com": seed.read_text(encoding="utf-8")})
+    # Bundled default cookies (shipped with the repo, one file per platform
+    # named <domain>.txt) — re-applied on every boot so ephemeral hosts keep
+    # them across redeploys. Admin edits win while the DB lives; the seed
+    # only fills an empty cookie store.
+    seed_dir = Path(__file__).parent / "seed_cookies"
+    if seed_dir.exists() and not _cookies_map():
+        seeds = {f.stem: f.read_text(encoding="utf-8")
+                 for f in sorted(seed_dir.glob("*.txt"))}
+        if seeds:
+            _save_cookies_map(seeds)
 
 
 def _env_cookies_text() -> str | None:
