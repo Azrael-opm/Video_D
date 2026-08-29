@@ -282,8 +282,12 @@ def job_file(job_id: str):
         raise HTTPException(status_code=410, detail="File expired and was cleaned up.")
     jobstore.note_delivered(job.id)
     db.record_delivery(job.id, job.filesize or path.stat().st_size)
+    # Content-Encoding: identity makes GZipMiddleware skip this response,
+    # so Content-Length survives and browsers show real size + progress
+    # instead of "374 KB / ?".
     return FileResponse(path, filename=job.filename or path.name,
-                        media_type="application/octet-stream")
+                        media_type="application/octet-stream",
+                        headers={"Content-Encoding": "identity"})
 
 
 # ---------------------------------------------------------------------------
