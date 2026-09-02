@@ -705,11 +705,14 @@ function onInput() {
   const url = els.input.value.trim();
   const platform = detectPlatform(url);
   setActivePill(platform || "");
+  const many = extractUrls(els.input.value).length;
   els.hint.textContent = platform
     ? (PLATFORMS[platform].hold
         ? PLATFORMS[platform].holdMsg
         : `${PLATFORMS[platform].name} link detected — hit Fetch.`)
-    : "Tip: paste a link and we'll detect the platform automatically.";
+    : many > 1
+      ? `${many} links detected — hit Fetch for bulk mode`
+      : "we detect the platform automatically — just paste";
 }
 
 renderPills();
