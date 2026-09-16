@@ -190,8 +190,9 @@ To make it survive: create a free Turso database (turso.tech), then set
 `TURSO_URL` (`libsql://…`) + `TURSO_TOKEN`. All hosts sharing those vars share
 one live database. Without either option the app silently keeps local SQLite.
 
-(Instagram default cookies ship bundled in `backend/seed_cookies.txt` and
-re-apply on every boot.)
+(Default cookies ship bundled in `backend/seed_cookies/` — one file per
+platform, named `<domain>.txt` — and re-apply on every boot. Dashboard-saved
+values win over the bundled seeds.)
 
 ---
 
@@ -222,15 +223,46 @@ python3 frontend/check_classes.py
 ```
 nyx-downloader/
 ├── backend/
-│   ├── main.py            # FastAPI app, routes, static hosting, rate limiter
-│   ├── extractors.py      # platform detection + yt-dlp analysis/format selection
-│   ├── jobs.py            # job engine: worker threads, progress hooks, cleanup
-│   ├── config.py          # env-driven config (ffmpeg, limits, TTL, quality ladder)
+│   ├── main.py            # FastAPI app, routes, static hosting, rate limiter, admin API
+│   ├── extractors.py      # platform detection + yt-dlp analysis/format selection + fallbacks
+│   ├── jobs.py            # job engine: worker threads, progress hooks, relay, cleanup
+│   ├── db.py              # SQLite/Turso persistence: jobs, settings, audit, sessions
+│   ├── auth.py            # PBKDF2 hashing, RFC-6238 TOTP, dynamic per-IP rate guard
+│   ├── uploads.py         # Recode Studio upload store + plan/size math
+│   ├── config.py          # env-driven config (ffmpeg, limits, TTL, caps)
+│   ├── entrypoint.sh      # container entrypoint
+│   ├── seed_cookies/      # bundled per-platform cookies, re-applied on every boot
 │   └── requirements.txt
-└── frontend/
-    ├── index.html         # Apple-style Tailwind UI (Play CDN + custom styles)
-    └── app.js             # state machine, API client, polling, SVG brand icons
+├── frontend/
+│   ├── index.html         # Apple-style Tailwind UI (downloader)
+│   ├── recode.html        # Recode Studio (compress / sync / repair)
+│   ├── admin.html         # admin dashboard (production console)
+│   ├── app.js             # state machine, API client, polling, SVG brand icons
+│   ├── tailwind.css       # precompiled stylesheet (no build step to run)
+│   ├── check_classes.py   # class guard: markup classes must exist in compiled CSS
+│   └── favicon.svg
+├── tailwind-src/          # Tailwind build source (only needed to recompile CSS)
+├── deploy/termux.sh       # run the backend on an Android phone (residential egress)
+├── Dockerfile · render.yaml · railway.json
+└── run-home.bat · start-backend.bat   # Windows: home-PC + Cloudflare tunnel
 ```
+
+## Code hygiene (run after EVERY modification)
+
+`bash hygiene.sh` runs the Code Hygiene Protocol over backend + frontend and
+exits non-zero until the tree is pristine:
+
+| Phase | What it does |
+|---|---|
+| **1 — Scan** | Python syntax · ruff (unused imports, undefined names, bugbear real-bug patterns) · frontend JS syntax (all pages + app.js) · class guard (markup classes ⊆ compiled CSS) · scope-aware duplicate-definition check |
+| **2 — Clean** | Auto-fixes safe findings (unused imports, missing `raise … from`) — idempotent |
+| **3 — Verify** | Import/build test (whole module graph loads — catches circular imports) · dead-config check (every env default is consumed) · final ruff gate |
+
+Gate before any submit: syntax ✅ · no redundancy ✅ · no deprecated methods ✅
+· clean formatting ✅ · working features ✅ (the import test + class guard are
+the automated half; exercise the touched feature in a browser for the rest).
+
+CI variant: `bash hygiene.sh --check` (verify only, never edits files).
 
 ## Running it
 

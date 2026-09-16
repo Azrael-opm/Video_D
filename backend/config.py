@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Bumped on every deploy-relevant change; shown in /health and Admin → Server
 # so you can verify at a glance which build each host is actually running.
-BUILD_TAG = os.getenv("BUILD_TAG", "2026.08.16-3")
+BUILD_TAG = os.getenv("BUILD_TAG", "2026.09.16-1")
 
 # ---------------------------------------------------------------------------
 # FFmpeg — required for merging bestvideo+bestaudio streams and for
@@ -76,8 +76,8 @@ MAX_DOWNLOAD_BYTES: int = int(os.getenv("MAX_DOWNLOAD_BYTES", str(2 * 1024**3)))
 SOCKET_TIMEOUT: int = 20
 RETRIES: int = 3
 
-# Video quality ladder presented to the user (highest first).
-QUALITY_LADDER: list[int] = [2160, 1440, 1080, 720, 480, 360, 240, 144]
+# Display names for known heights (the ladder itself is derived from the
+# renditions yt-dlp reports for each post, filtered to ≤2160p).
 QUALITY_LABELS: dict[int, str] = {
     2160: "4K Ultra HD",
     1440: "2K QHD",

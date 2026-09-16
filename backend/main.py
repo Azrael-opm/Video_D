@@ -217,7 +217,7 @@ def analyze(request: Request, body: AnalyzeRequest):
                         return data
                 except Exception:  # noqa: BLE001 — relays are best-effort
                     continue
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if len(_ANALYZE_CACHE) > 200:
         _ANALYZE_CACHE.clear()
     _ANALYZE_CACHE[key] = (time.time(), data)
@@ -231,7 +231,7 @@ def download(request: Request, body: DownloadRequest):
     try:
         url = extractors.normalize_media_url(extractors.validate_url(body.url))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if body.mode == "video" and not config.FFMPEG_PATH:
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
@@ -254,7 +254,7 @@ def preview(request: Request, body: PreviewRequest):
     try:
         url = extractors.normalize_media_url(extractors.validate_url(body.url))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     job = jobstore.create_job(url, "preview", None, None, client_ip=auth.client_ip(request))
     return job.snapshot()
 
@@ -295,7 +295,7 @@ def job_file(job_id: str):
 # ---------------------------------------------------------------------------
 @app.post("/api/recode/upload")
 @limiter.limit(BASELINE)
-async def recode_upload(request: Request, file: UploadFile = File(...)):
+async def recode_upload(request: Request, file: UploadFile = File(...)):  # noqa: B008 — FastAPI idiom
     _limit(request, "upload_rate_limit")
     if not config.FFMPEG_PATH:
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
@@ -341,7 +341,7 @@ def recode_plan(request: Request, upload_id: str, target_mb: Optional[float] = N
     try:
         return uploads_mod.compute_plan(up, target_mb, preset, mode)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/recode/start")
@@ -358,7 +358,7 @@ def recode_start(request: Request, body: RecodeStartRequest):
     try:
         uploads_mod.compute_plan(up, body.target_mb, body.preset, body.mode)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     job = jobstore.create_upload_recode_job(up.path, up.filename, body.preset,
                                             body.target_mb, body.mode,
                                             client_ip=auth.client_ip(request),

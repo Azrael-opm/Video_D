@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import config
+
 DB_PATH = Path(os.getenv("NYX_DB", str(Path(__file__).parent / "nyx.sqlite3")))
 
 TURSO_URL = os.getenv("TURSO_URL") or None
@@ -29,17 +31,19 @@ _remote_failed = False
 SETTINGS_CACHE_TTL = 5.0
 _settings_cache: tuple[float, dict[str, str]] = (0.0, {})
 
-# Defaults used when no override is stored. Kept in sync with config.py env.
+# Defaults used when no override is stored. Sourced from config.py so the
+# documented env vars (ANALYZE_RATE_LIMIT, MAX_UPLOAD_BYTES, …) actually
+# take effect; dashboard-saved values still win over these.
 SETTING_DEFAULTS: dict[str, str] = {
-    "analyze_rate_limit": "15/minute",
-    "download_rate_limit": "8/hour",
-    "preview_rate_limit": "30/hour",
-    "recode_rate_limit": "12/hour",
-    "upload_rate_limit": "10/hour",
-    "job_ttl_seconds": "1800",
-    "max_download_mb": "2048",
-    "max_upload_mb": "800",
-    "preview_height": "480",
+    "analyze_rate_limit": config.ANALYZE_RATE_LIMIT,
+    "download_rate_limit": config.DOWNLOAD_RATE_LIMIT,
+    "preview_rate_limit": config.PREVIEW_RATE_LIMIT,
+    "recode_rate_limit": config.RECODE_RATE_LIMIT,
+    "upload_rate_limit": config.UPLOAD_RATE_LIMIT,
+    "job_ttl_seconds": str(config.JOB_TTL_SECONDS),
+    "max_download_mb": str(config.MAX_DOWNLOAD_BYTES // (1024 * 1024)),
+    "max_upload_mb": str(config.MAX_UPLOAD_BYTES // (1024 * 1024)),
+    "preview_height": str(config.PREVIEW_HEIGHT),
     "disk_cap_gb": "10",
 }
 
@@ -159,7 +163,7 @@ def _rows(cur) -> list[dict]:
     if getattr(cur, "description", None) is None:
         return []
     names = [d[0] for d in cur.description]
-    return [dict(zip(names, r)) for r in cur.fetchall()]
+    return [dict(zip(names, r, strict=True)) for r in cur.fetchall()]
 
 
 def q(sql: str, args: tuple = (), fetch: bool = True) -> Any:

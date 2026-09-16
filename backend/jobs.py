@@ -672,7 +672,7 @@ def _ffmpeg_with_progress(cmd: list, job: Job, duration: float,
                     proc.kill()
                     raise RuntimeError(
                         "FFmpeg stalled for 2 minutes with no output — "
-                        "this file may be too damaged to process.")
+                        "this file may be too damaged to process.") from None
                 continue
             if raw is None:
                 break
