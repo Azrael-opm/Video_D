@@ -101,6 +101,9 @@ class Job:
     finished_at: Optional[float] = None  # set when the job reaches a terminal state
     status: str = "queued"           # queued|downloading|processing|done|error
     progress: float = 0.0            # 0–100
+    stage: Optional[str] = None      # transient label for silent ffmpeg phases
+                                     # (e.g. "finalizing" after the last frame,
+                                     # while a moov-atom rewrite is running)
     speed: Optional[float] = None    # bytes/sec
     eta: Optional[float] = None      # seconds
     title: Optional[str] = None
@@ -680,9 +683,16 @@ def _ffmpeg_with_progress(cmd: list, job: Job, duration: float,
                     secs = int(line.split("=", 1)[1]) / 1_000_000
                     if duration:
                         job.progress = lo + min(hi - lo, secs / duration * (hi - lo))
+                        # Last frame encoded but ffmpeg still running (moov-
+                        # atom rewrite / muxer flush): the -progress stream is
+                        # silent now, so name the phase instead of letting
+                        # the bar sit "stuck" at 98% with no explanation.
+                        if secs >= duration and proc.poll() is None:
+                            job.stage = "finalizing"
                 except ValueError:
                     pass
         proc.wait()
+        job.stage = None
     finally:
         err_fh.close()
     if proc.returncode != 0:
@@ -758,8 +768,13 @@ def _upload_recode(job: Job) -> Path:
     # ---- repair: stream-copy remux first, re-encode only if forced --------
     if mode == "repair":
         job.progress = 20.0
+        # NOTE: no +faststart here. The recode output is delivered as a plain
+        # file download (attachment, never streamed in-browser), and faststart
+        # makes ffmpeg silently re-write the ENTIRE file a second time after
+        # the encode — that post-encode rewrite is what used to leave users
+        # waiting minutes on a bar frozen at 98%. Local players don't need it.
         cmd = [config.FFMPEG_PATH, "-y", *common_in,
-               "-map", "0", "-c", "copy", "-movflags", "+faststart",
+               "-map", "0", "-c", "copy",
                str(out)]
         res = subprocess.run(cmd, capture_output=True, cwd=str(config.TMP_DIR), timeout=3600)
         if res.returncode == 0 and out.exists() and out.stat().st_size > 1024:
@@ -773,7 +788,7 @@ def _upload_recode(job: Job) -> Path:
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
                *tune, "-crf", "16", "-fps_mode", "cfr",
                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-               "-movflags", "+faststart", "-progress", "pipe:1", "-nostats",
+               "-progress", "pipe:1", "-nostats",
                str(out)]
         _ffmpeg_with_progress(cmd, job, duration, 30.0, 98.0)
         if not out.exists():
@@ -788,7 +803,7 @@ def _upload_recode(job: Job) -> Path:
                "-map_metadata", "-1",
                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
                *tune, "-crf", "18", "-fps_mode", "cfr",
-               "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
+               "-progress", "pipe:1", "-nostats"]
         cmd += ["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr else ["-an"]
         cmd.append(str(out))
         _ffmpeg_with_progress(cmd, job, duration, 5.0, 98.0)
@@ -810,7 +825,7 @@ def _upload_recode(job: Job) -> Path:
                "-b:v", f"{vbr}k", "-maxrate", f"{int(vbr * 1.3)}k",
                "-bufsize", f"{int(vbr * 2.6)}k",
                *tune, "-fps_mode", "cfr",
-               "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
+               "-progress", "pipe:1", "-nostats"]
         cmd += (["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"] if abr
                 else ["-an"])
         cmd.append(str(out))
@@ -841,7 +856,7 @@ def _upload_recode(job: Job) -> Path:
             "-bufsize", f"{int(vbr * 2.6)}k",
             *tune, "-pass", "2", "-passlogfile", passlog,
             "-fps_mode", "cfr",
-            "-movflags", "+faststart", "-progress", "pipe:1", "-nostats"]
+            "-progress", "pipe:1", "-nostats"]
     if abr:
         cmd2 += ["-c:a", "aac", "-b:a", f"{abr}k", "-ar", "48000"]
     else:

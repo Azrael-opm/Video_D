@@ -115,10 +115,17 @@ A standalone page where users upload their own video and compress it to an
    size (`-pass 1` analysis + `-pass 2` with `-maxrate` headroom), with live
    progress parsed from ffmpeg's `-progress` stream
 
-Upload-ready output for the chosen platform: H.264 High + AAC-LC in MP4 with
-`+faststart`, CFR-forced timestamps and regenerated PTS — files that already meet
+Upload-ready output for the chosen platform: H.264 High + AAC-LC in MP4,
+CFR-forced timestamps and regenerated PTS — files that already meet
 a platform's codec/bitrate spec (TikTok ≤4 Mbps, Instagram ≤4.5 Mbps, YouTube
 ≤12 Mbps…) are **not re-compressed when posted**.
+
+Recode output is delivered as a plain file download (never streamed in-browser),
+so it is encoded **without `+faststart`**: the flag would otherwise make ffmpeg
+silently re-write the entire file a second time after the encode, which left
+users waiting minutes on a bar frozen at ~98%. The job now completes the
+moment the last frame is encoded. (The inline 480p *preview* still uses
+`+faststart` because it is played in the browser.)
 
 Guarantees: target size must be < original (422 otherwise), resolution is never
 scaled, and the UI states plainly that smaller targets mean more compression.

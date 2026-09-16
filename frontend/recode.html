@@ -651,7 +651,12 @@ function pollJob() {
       }
       if (["processing","queued","downloading"].includes(j.status)) {
         const pct = Math.max(1, j.progress || 0);
-        const [s, h] = stageFor(pct);
+        // Server reports a silent ffmpeg phase (last frame encoded, final
+        // file pass running) — name it instead of sitting on 98%.
+        const [s, h] = j.stage === "finalizing"
+          ? ["Finishing up — finalizing the file…",
+             "Encoding is done; one last full pass over the file is running. Big files can take a bit here."]
+          : stageFor(pct);
         setStage(s, pct, h);
         state.timer = setTimeout(tick, 900);
       } else if (j.status === "done") {
