@@ -666,7 +666,8 @@ def analyze(url: str) -> dict[str, Any]:
     # as a safety net if the session is stale or the attempt got gated.
     if platform == "tiktok" and "/photo/" in url:
         ck = cookies_configured()
-        for with_ck in ([True, False] if ck else [False]):
+        photo_order = [True, True, False] if ck else [False]
+        for n, with_ck in enumerate(photo_order):
             try:
                 info = _tiktok_photo_extract(url, with_cookies=with_ck)
                 break
@@ -674,7 +675,9 @@ def analyze(url: str) -> dict[str, Any]:
                 info = None
                 if not gateish(str(exc)):
                     break
-                time.sleep(random.uniform(0.5, 1.5))
+                lo, hi = (2.0, 3.5) if (with_ck and n + 1 < len(photo_order)
+                                        and photo_order[n + 1]) else (0.5, 1.5)
+                time.sleep(random.uniform(lo, hi))
 
     if info is None:
         # Attempt order — TikTok: cookies FIRST (a logged-in session passes
@@ -684,7 +687,11 @@ def analyze(url: str) -> dict[str, Any]:
         # rescue, so the account stays out of routine traffic (fewer
         # "suspicious activity" warnings).
         ck = cookies_configured()
-        order = ([True, False] if (platform == "tiktok" and ck)
+        # TikTok gets TWO cookie tries: the bot gate is per-request and
+        # probabilistic on datacenter IPs, so a second attempt after a
+        # human-ish pause meaningfully raises the pass rate before we fall
+        # back to anonymous / third parties.
+        order = ([True, True, False] if (platform == "tiktok" and ck)
                  else [False] + ([True] if ck else []))
         exc: Optional[DownloadError] = None
         for i, with_ck in enumerate(order):
@@ -697,7 +704,10 @@ def analyze(url: str) -> dict[str, Any]:
                 if not gateish(str(e)):
                     break                      # private/deleted — retrying won't help
                 if i + 1 < len(order):
-                    time.sleep(random.uniform(0.5, 1.5))   # human-ish pause
+                    # Longer pause before a cookie retry — the per-request
+                    # risk check needs a beat to re-evaluate.
+                    lo, hi = (2.0, 3.5) if (with_ck and order[i + 1]) else (0.5, 1.5)
+                    time.sleep(random.uniform(lo, hi))
         if info is None and exc is None:
             # extract_info returned nothing without raising — nothing for
             # the fallbacks to key off; the generic error below applies.
