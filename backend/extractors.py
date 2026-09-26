@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html as html_mod
 import json
+import logging
 import random
 import re
 import time
@@ -31,6 +32,8 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
 import config
+
+log = logging.getLogger("nyx.extractors")
 
 HTTP_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -713,6 +716,8 @@ def analyze(url: str) -> dict[str, Any]:
             # the fallbacks to key off; the generic error below applies.
             raise ValueError("No media information was returned for this URL.")
         if info is None:
+            log.warning("yt-dlp failed for %s %s after %d attempt(s): %s",
+                        platform, url, len(order), str(exc)[:160])
             # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
             # public syndication CDN is not — return direct .mp4 variants.
             # fxtwitter covers sensitive-content tweets the CDN tombstones.
@@ -727,6 +732,7 @@ def analyze(url: str) -> dict[str, Any]:
                 for fb in (_tikdownloader_fallback, _tiktok_fallback):
                     syn = fb(url)
                     if syn and (syn["video_options"] or syn["image_options"]):
+                        log.info("serving %s via %s (yt-dlp was gated)", url, fb.__name__)
                         return _syn_response(url, platform, syn)
             # Image posts make several extractors bail ("No video formats found",
             # "There is no video in this post", …). Layered fallbacks recover the
@@ -1172,10 +1178,13 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
             data = d.get("data") if isinstance(d, dict) else None
             if data and (data.get("play") or data.get("images")):
                 break
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            log.warning("tikwm fallback failed for %s: %s: %s",
+                        url, type(e).__name__, str(e)[:120])
             return None
         time.sleep(1.5)
     if not data or not (data.get("play") or data.get("images")):
+        log.warning("tikwm fallback failed for %s: no play/image data after 6 attempts", url)
         return None
 
     def abs_url(u):
@@ -1208,24 +1217,44 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
 
 
 def _tikdownloader_fallback(url: str) -> Optional[dict]:
-    """tikdownloader.io's ajaxSearch API — second third-party TikTok fallback,
-    used only when yt-dlp (even with cookies) AND tikwm both fail. The site's
-    backend fetches the post from its own infrastructure and returns an HTML
-    fragment with direct watermark-free TikTok CDN urls (plus signed proxy
-    variants) that remain downloadable from datacenter IPs."""
+    """tikdownloader.io's ajaxSearch API — first third-party TikTok fallback,
+    tried when yt-dlp (even with cookies) is bot-gated; tikwm is the last
+    resort. The site's backend fetches the post from its own infrastructure
+    and returns an HTML fragment with direct watermark-free TikTok CDN urls
+    (plus signed proxy variants) that remain downloadable from datacenter
+    IPs."""
     api = "https://tikdownloader.io/api/ajaxSearch"
-    try:
-        with httpx.Client(headers=HTTP_HEADERS, timeout=45, follow_redirects=True) as c:
-            r = c.post(api, data={"q": url, "lang": "en"},
-                       headers={"X-Requested-With": "XMLHttpRequest",
-                                "Referer": "https://tikdownloader.io/en"})
-            d = r.json()
-    except Exception:  # noqa: BLE001 — fallbacks must never raise
-        return None
-    if not isinstance(d, dict) or d.get("status") != "ok" or d.get("msg"):
+    # Two chances: the endpoint occasionally rate-limits a shared egress IP
+    # for a request or two; a short pause usually clears it.
+    for _attempt in range(2):
+        try:
+            with httpx.Client(headers=HTTP_HEADERS, timeout=45,
+                              follow_redirects=True) as c:
+                r = c.post(api, data={"q": url, "lang": "en"},
+                           headers={"X-Requested-With": "XMLHttpRequest",
+                                    "Referer": "https://tikdownloader.io/en"})
+                d = r.json()
+        except Exception as e:  # noqa: BLE001 — fallbacks must never raise
+            log.warning("tikdownloader fallback failed for %s: %s: %s",
+                        url, type(e).__name__, str(e)[:120])
+            return None
+        if isinstance(d, dict) and d.get("status") == "ok" and not d.get("msg"):
+            break
+        http = getattr(r, "status_code", None)
+        st = d.get("status") if isinstance(d, dict) else type(d).__name__
+        msg = d.get("msg") if isinstance(d, dict) else None
+        if _attempt == 0:
+            log.warning("tikdownloader attempt 1 failed for %s: http=%s status=%r msg=%r — retrying",
+                        url, http, st, msg)
+            time.sleep(random.uniform(1.5, 3))
+            continue
+        log.warning("tikdownloader fallback failed for %s: http=%s status=%r msg=%r",
+                    url, http, st, msg)
         return None
     frag = d.get("data") or ""
     if "Download MP4" not in frag:
+        log.warning("tikdownloader fallback failed for %s: no MP4 links in fragment (len=%d)",
+                    url, len(frag))
         return None
 
     links: list[tuple[str, str]] = []

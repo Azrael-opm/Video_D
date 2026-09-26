@@ -28,6 +28,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -54,6 +55,11 @@ import db
 import extractors
 import jobs as jobstore
 import uploads as uploads_mod
+
+# Surface fetch-pipeline diagnostics (which source served a gated URL, and
+# why each fallback failed) in the host's logs.
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
