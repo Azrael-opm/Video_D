@@ -58,7 +58,7 @@ gracefully and always tells you *why* a platform is gated:
 
 | Platform | Analyze (metadata) | Download | Notes |
 |----------|--------------------|----------|-------|
-| **TikTok** | ✅ full ladder | ✅ | Cookies (bundled/your own) unlock the full height ladder; the **tikwm fallback** serves watermark-free CDN URLs when even cookies are bot-checked |
+| **TikTok** | ✅ full ladder | ✅ | Cookies (bundled/your own) unlock the full height ladder; if cookies are still bot-checked, the **tikwm fallback** serves watermark-free CDN URLs, with **tikdownloader.io** as a second fallback (direct CDN urls from its own fetch infrastructure) when even tikwm is throttled |
 | **X / Twitter** | ✅ | ✅ | yt-dlp direct; public **syndication CDN fallback** for gated IPs (direct .mp4 variants) |
 | **YouTube** | ✅ full ladder incl. 4K60 | ⚠️ datacenter IPs get **403 at the video CDN** | Player API tolerates DC IPs (metadata is fine); the CDN doesn't. **Cookies** or a **residential relay** fix it — see [below](#why-platforms-gate-servers--and-the-real-fixes). Previews are disabled for YouTube (ToS) |
 | **Instagram** | ✅ | ✅ many Reels anonymously | Stories/private posts need cookies |
@@ -151,6 +151,9 @@ one finished file.
 
 * **TikTok** — yt-dlp's extractor returns the clean (non-watermarked) renditions
   and we pass `extractor_args` that prefer the watermark-free API endpoints.
+  Fallback chain when TikTok bot-gates this host's IP: **cookies** →
+  **tikwm** (watermark-free CDN urls) → **tikdownloader.io** (direct CDN urls
+  from its own fetch infrastructure).
 * **Instagram / Facebook / X / Reddit / YouTube** — the served files are the
   original uploads (Shorts, Reels, tweets…), so there is no watermark to remove.
 * **Snapchat** — every anonymous CDN rendition has the ghost logo + username

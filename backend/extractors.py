@@ -9,7 +9,9 @@ Watermark notes
 ---------------
 * TikTok   — yt-dlp's TikTok extractor returns the clean (watermark-free)
              rendition by default; when TikTok bot-gates datacenter IPs the
-             tikwm fallback serves watermark-free CDN urls instead.
+             tikwm fallback serves watermark-free CDN urls instead, and
+             tikdownloader.io is the second fallback (direct CDN urls from its
+             own fetch infrastructure) when even tikwm is throttled.
 * Others   — Reels, Shorts, tweets, Reddit/FB/Snap videos are served as
              the original uploaded file, so there is no watermark to strip.
 """
@@ -694,11 +696,14 @@ def analyze(url: str) -> dict[str, Any]:
                 syn = _twitter_anon_fetch(url)
                 if syn and (syn["video_options"] or syn["image_options"]):
                     return _syn_response(url, platform, syn)
-            # TikTok bot-gates datacenter IPs — tikwm serves the clean CDN urls.
+            # TikTok bot-gates datacenter IPs — tikwm serves the clean CDN
+            # urls; if even that is throttled from this egress, tikdownloader
+            # hands back direct CDN urls from its own fetch infrastructure.
             if info is None and platform == "tiktok":
-                syn = _tiktok_fallback(url)
-                if syn and (syn["video_options"] or syn["image_options"]):
-                    return _syn_response(url, platform, syn)
+                for fb in (_tiktok_fallback, _tikdownloader_fallback):
+                    syn = fb(url)
+                    if syn and (syn["video_options"] or syn["image_options"]):
+                        return _syn_response(url, platform, syn)
             # Image posts make several extractors bail ("No video formats found",
             # "There is no video in this post", …). Layered fallbacks recover the
             # images anyway: platform-native APIs first, then OpenGraph metadata.
@@ -837,13 +842,15 @@ def analyze(url: str) -> dict[str, Any]:
                 image_options = syn["image_options"]
             syn_meta = syn
     if platform == "tiktok" and not video_options:
-        syn = _tiktok_fallback(url)
-        if syn:
-            video_options = syn["video_options"]
-            audio_options = audio_options or syn["audio_options"]
-            if not image_options:
-                image_options = syn["image_options"]
-            syn_meta = syn
+        for fb in (_tiktok_fallback, _tikdownloader_fallback):
+            syn = fb(url)
+            if syn:
+                video_options = syn["video_options"]
+                audio_options = audio_options or syn["audio_options"]
+                if not image_options:
+                    image_options = syn["image_options"]
+                syn_meta = syn
+                break
     if not video_options and info.get("og_videos"):
         # og:video direct mp4s (facebook public pages) when yt-dlp couldn't help
         video_options = info["og_videos"]
@@ -1171,6 +1178,79 @@ def _tiktok_fallback(url: str) -> Optional[dict]:
             "uploader": (data.get("author") or {}).get("nickname"),
             "thumbnail": abs_url(data.get("cover") or data.get("origin_cover")),
             "duration": (data.get("duration") or 0) or None,
+            "video_options": videos, "image_options": images,
+            "audio_options": _twitter_audio_for(videos)}
+
+
+def _tikdownloader_fallback(url: str) -> Optional[dict]:
+    """tikdownloader.io's ajaxSearch API — second third-party TikTok fallback,
+    used only when yt-dlp (even with cookies) AND tikwm both fail. The site's
+    backend fetches the post from its own infrastructure and returns an HTML
+    fragment with direct watermark-free TikTok CDN urls (plus signed proxy
+    variants) that remain downloadable from datacenter IPs."""
+    api = "https://tikdownloader.io/api/ajaxSearch"
+    try:
+        with httpx.Client(headers=HTTP_HEADERS, timeout=45, follow_redirects=True) as c:
+            r = c.post(api, data={"q": url, "lang": "en"},
+                       headers={"X-Requested-With": "XMLHttpRequest",
+                                "Referer": "https://tikdownloader.io/en"})
+            d = r.json()
+    except Exception:  # noqa: BLE001 — fallbacks must never raise
+        return None
+    if not isinstance(d, dict) or d.get("status") != "ok" or d.get("msg"):
+        return None
+    frag = d.get("data") or ""
+    if "Download MP4" not in frag:
+        return None
+
+    links: list[tuple[str, str]] = []
+    for m in re.finditer(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', frag, re.S):
+        href = m.group(1).strip()
+        if not href.startswith("http"):
+            continue
+        label = re.sub(r"<[^>]+>", " ", m.group(2))
+        label = re.sub(r"\s+", " ", html_mod.unescape(label)).strip().lower()
+        links.append((label, href))
+
+    def best(label_re: str, prefer_direct: bool = True) -> Optional[str]:
+        """First link matching the label; direct tiktok CDN preferred over the
+        site's signed proxy (fewer third-party hops on the file bytes)."""
+        matches = [h for lab, h in links if re.search(label_re, lab)]
+        if prefer_direct:
+            for h in matches:
+                if "tiktokcdn" in h:
+                    return h
+        for h in matches:
+            return h
+        return None
+
+    sd = best(r"mp4")
+    hd = best(r"mp4\s*hd")
+    videos = []
+    if hd and hd != sd:
+        videos.append({"kind": "video", "height": None, "label": "HD · no watermark",
+                       "filesize": None, "is_estimate": False, "direct_url": hd})
+    if sd:
+        videos.append({"kind": "video", "height": None, "label": "SD · no watermark",
+                       "filesize": None, "is_estimate": False, "direct_url": sd})
+    if not videos:
+        return None
+
+    img_m = re.search(r'<img[^>]*src="([^"]+)"', frag)
+    img_url = html_mod.unescape(img_m.group(1).strip()) if img_m else None
+    images = [{"kind": "image", "url": img_url, "width": None,
+               "height": None, "label": "Image", "filesize": None}] if img_m else []
+
+    # Caption is the first long text node in the fragment.
+    title = "TikTok post"
+    for m in re.finditer(r'>([^<>]{20,200})<', frag):
+        text = html_mod.unescape(m.group(1)).strip()
+        if text and "adsbygoogle" not in text:
+            title = text[:120]
+            break
+    return {"title": title, "uploader": None,
+            "thumbnail": img_url,
+            "duration": None,
             "video_options": videos, "image_options": images,
             "audio_options": _twitter_audio_for(videos)}
 
