@@ -434,11 +434,19 @@ def _download_with_ytdlp(job: Job) -> Path:
     # account out of traffic that doesn't need it); YouTube's alt-client
     # ladder last. Small human-ish pause before cookie attempts.
     cookies = cookies_configured()
-    attempts = ([(None, False)] + ([(None, True)] if cookies else []) +
-                ([(c, cookies) for c in YT_ALT_CLIENTS]
-                 if job.platform == "youtube" else []))
+    # TikTok: cookies FIRST — a logged-in session passes the bot gate that
+    # stops anonymous datacenter traffic; anonymous stays as a safety net in
+    # case the session is stale. Other platforms keep the conservative order
+    # (anonymous first, cookies only as a gated rescue — keeps the account
+    # out of routine traffic); YouTube's alt-client ladder comes last.
+    if job.platform == "tiktok" and cookies:
+        base_attempts = [(None, True), (None, False)]
+    else:
+        base_attempts = [(None, False)] + ([(None, True)] if cookies else [])
+    attempts = base_attempts + ([(c, cookies) for c in YT_ALT_CLIENTS]
+                                if job.platform == "youtube" else [])
     last_exc: Optional[DownloadError] = None
-    for client, with_ck in attempts:
+    for i, (client, with_ck) in enumerate(attempts):
         o = dict(opts)
         if with_ck and config.COOKIES_FILE:
             o["cookiefile"] = config.COOKIES_FILE
@@ -453,8 +461,8 @@ def _download_with_ytdlp(job: Job) -> Path:
         except DownloadError as exc:
             if not gateish(str(exc)):
                 raise
-            if not with_ck and cookies:
-                time.sleep(random.uniform(0.5, 1.5))
+            if i + 1 < len(attempts):
+                time.sleep(random.uniform(0.5, 1.5))   # human-ish pause between attempts
             last_exc = exc
     if last_exc is not None:
         raise last_exc

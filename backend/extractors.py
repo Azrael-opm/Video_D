@@ -8,10 +8,11 @@ YouTube) plus thousands more.
 Watermark notes
 ---------------
 * TikTok   — yt-dlp's TikTok extractor returns the clean (watermark-free)
-             rendition by default; when TikTok bot-gates datacenter IPs the
-             tikwm fallback serves watermark-free CDN urls instead, and
-             tikdownloader.io is the second fallback (direct CDN urls from its
-             own fetch infrastructure) when even tikwm is throttled.
+             rendition by default; it is tried with stored cookies FIRST (a
+             logged-in session passes the bot gate that stops anonymous
+             datacenter traffic). If yt-dlp is still gated: tikdownloader.io
+             serves direct CDN urls from its own fetch infrastructure, and
+             tikwm (rate-limited per egress IP) is the last resort.
 * Others   — Reels, Shorts, tweets, Reddit/FB/Snap videos are served as
              the original uploaded file, so there is no watermark to strip.
 """
@@ -661,34 +662,47 @@ def analyze(url: str) -> dict[str, Any]:
 
     info: Optional[dict] = None
     # TikTok photo posts need the capture-hook extractor (yt-dlp drops slides).
-    # Anonymous first; cookies only if the anonymous attempt got gated.
+    # Cookies first (TikTok policy — see the attempt order below), anonymous
+    # as a safety net if the session is stale or the attempt got gated.
     if platform == "tiktok" and "/photo/" in url:
-        try:
-            info = _tiktok_photo_extract(url)
-        except (DownloadError, ExtractorError) as exc:
-            if cookies_configured() and gateish(str(exc)):
+        ck = cookies_configured()
+        for with_ck in ([True, False] if ck else [False]):
+            try:
+                info = _tiktok_photo_extract(url, with_cookies=with_ck)
+                break
+            except (DownloadError, ExtractorError) as exc:
+                info = None
+                if not gateish(str(exc)):
+                    break
                 time.sleep(random.uniform(0.5, 1.5))
-                try:
-                    info = _tiktok_photo_extract(url, with_cookies=True)
-                except (DownloadError, ExtractorError):
-                    info = None
 
     if info is None:
-        try:
-            with YoutubeDL(opts_for_platform(platform)) as ydl:
-                info = ydl.extract_info(normalize_media_url(url), download=False)
-        except (DownloadError, ExtractorError) as exc:
-            # Escalate to stored cookies ONLY when the anonymous attempt was
-            # gated — the account stays out of every request that doesn't
-            # need it (fewer cookies-from-datacenter hits = fewer "suspicious
-            # activity" warnings). Small human-ish pause before the retry.
-            if cookies_configured() and gateish(str(exc)):
-                time.sleep(random.uniform(0.5, 1.5))
-                try:
-                    with YoutubeDL(opts_for_platform(platform, with_cookies=True)) as ydl:
-                        info = ydl.extract_info(normalize_media_url(url), download=False)
-                except (DownloadError, ExtractorError):
-                    pass
+        # Attempt order — TikTok: cookies FIRST (a logged-in session passes
+        # the bot gate that stops anonymous datacenter traffic), anonymous as
+        # a safety net in case the session is stale. Every other platform
+        # stays conservative: anonymous first, cookies only as a gated
+        # rescue, so the account stays out of routine traffic (fewer
+        # "suspicious activity" warnings).
+        ck = cookies_configured()
+        order = ([True, False] if (platform == "tiktok" and ck)
+                 else [False] + ([True] if ck else []))
+        exc: Optional[DownloadError] = None
+        for i, with_ck in enumerate(order):
+            try:
+                with YoutubeDL(opts_for_platform(platform, with_cookies=with_ck)) as ydl:
+                    info = ydl.extract_info(normalize_media_url(url), download=False)
+                break
+            except (DownloadError, ExtractorError) as e:
+                exc = e
+                if not gateish(str(e)):
+                    break                      # private/deleted — retrying won't help
+                if i + 1 < len(order):
+                    time.sleep(random.uniform(0.5, 1.5))   # human-ish pause
+        if info is None and exc is None:
+            # extract_info returned nothing without raising — nothing for
+            # the fallbacks to key off; the generic error below applies.
+            raise ValueError("No media information was returned for this URL.")
+        if info is None:
             # X/Twitter: yt-dlp is usually blocked from datacenter IPs, but the
             # public syndication CDN is not — return direct .mp4 variants.
             # fxtwitter covers sensitive-content tweets the CDN tombstones.
@@ -696,11 +710,11 @@ def analyze(url: str) -> dict[str, Any]:
                 syn = _twitter_anon_fetch(url)
                 if syn and (syn["video_options"] or syn["image_options"]):
                     return _syn_response(url, platform, syn)
-            # TikTok bot-gates datacenter IPs — tikwm serves the clean CDN
-            # urls; if even that is throttled from this egress, tikdownloader
-            # hands back direct CDN urls from its own fetch infrastructure.
+            # TikTok bot-gates datacenter IPs — third-party fallbacks, in
+            # order: tikdownloader.io first (direct CDN urls from its own
+            # fetch infrastructure), tikwm last (rate-limited per egress IP).
             if info is None and platform == "tiktok":
-                for fb in (_tiktok_fallback, _tikdownloader_fallback):
+                for fb in (_tikdownloader_fallback, _tiktok_fallback):
                     syn = fb(url)
                     if syn and (syn["video_options"] or syn["image_options"]):
                         return _syn_response(url, platform, syn)
@@ -842,7 +856,8 @@ def analyze(url: str) -> dict[str, Any]:
                 image_options = syn["image_options"]
             syn_meta = syn
     if platform == "tiktok" and not video_options:
-        for fb in (_tiktok_fallback, _tikdownloader_fallback):
+        # Third-party fallbacks, in order: tikdownloader first, tikwm last.
+        for fb in (_tikdownloader_fallback, _tiktok_fallback):
             syn = fb(url)
             if syn:
                 video_options = syn["video_options"]
