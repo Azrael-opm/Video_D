@@ -11,6 +11,7 @@ for Redis (the Job dataclass is already JSON-serialisable).
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import subprocess
@@ -30,7 +31,8 @@ import random
 
 from extractors import (cookies_configured, detect_platform, gateish,
                         format_selector_for_audio, format_selector_for_height,
-                        friendly_fetch_error, opts_for_platform, YT_ALT_CLIENTS)
+                        friendly_fetch_error, guard_public_request, opts_for_platform,
+                        validate_url, YT_ALT_CLIENTS)
 
 STARTED_AT = time.time()
 # Changes on every server boot — the frontend uses it to detect a restart
@@ -212,39 +214,117 @@ def get_job(job_id: str) -> Job | None:
         return JOBS.get(job_id)
 
 
-def purge_expired() -> int:
-    """Housekeeping ONLY: enforce the disk cap.
+def _job_ttl_seconds() -> int:
+    try:
+        ttl = int(float(db.get_setting("job_ttl_seconds")))
+        return max(0, ttl)
+    except (TypeError, ValueError, OverflowError):
+        return config.JOB_TTL_SECONDS
 
-    Job RECORDS are never auto-deleted — the admin decides what goes. The only
-    automatic eviction is staged FILES when usage exceeds the configured disk
-    cap (set it to 0 to disable even that; records always survive).
+
+def _active_artifacts() -> tuple[set[str], set[Path], dict[str, float]]:
+    with _LOCK:
+        active = [j for j in JOBS.values()
+                  if j.status in ("queued", "downloading", "processing")]
+        terminal_times = {j.id: j.finished_at for j in JOBS.values()
+                          if j.status in ("done", "error", "cancelled") and j.finished_at}
+    active_ids = {j.id for j in active}
+    active_sources = set()
+    for job in active:
+        if job.source_path:
+            try:
+                active_sources.add(Path(job.source_path).resolve())
+            except OSError:
+                pass
+    return active_ids, active_sources, terminal_times
+
+
+def _is_active_artifact(path: Path, active_ids: set[str], active_sources: set[Path]) -> bool:
+    try:
+        if path.resolve() in active_sources:
+            return True
+    except OSError:
+        pass
+    return path.name.split(".", 1)[0] in active_ids
+
+
+def purge_expired() -> int:
+    """Expire staged files by TTL, then enforce the disk cap.
+
+    Job records remain in history; only their staged files are removed. A TTL
+    of zero disables age-based cleanup, while a positive disk cap still applies.
     """
-    return _enforce_disk_cap()
+    ttl = _job_ttl_seconds()
+    freed = (_expire_staged_files(ttl) if ttl > 0 else 0) + _enforce_disk_cap()
+    if ttl > 0:
+        _prune_finished_job_cache(ttl)
+    return freed
+
+
+def _prune_finished_job_cache(ttl: int) -> None:
+    cutoff = time.time() - ttl
+    with _LOCK:
+        stale = [job_id for job_id, job in JOBS.items()
+                 if job.status in ("done", "error", "cancelled")
+                 and (job.finished_at or job.created_at) <= cutoff]
+        for job_id in stale:
+            JOBS.pop(job_id, None)
+
+
+def _expire_staged_files(ttl: int) -> int:
+    now = time.time()
+    active_ids, active_sources, terminal_times = _active_artifacts()
+    freed = 0
+    try:
+        paths = list(config.TMP_DIR.iterdir())
+    except OSError:
+        return 0
+    for path in paths:
+        try:
+            if not path.is_file() or _is_active_artifact(path, active_ids, active_sources):
+                continue
+            stat = path.stat()
+            job_id = path.name.split(".", 1)[0]
+            age_anchor = terminal_times.get(job_id, stat.st_mtime)
+            if now - age_anchor < ttl:
+                continue
+            size = stat.st_size
+            path.unlink(missing_ok=True)
+            freed += size
+        except OSError:
+            continue
+    return freed
 
 
 def _enforce_disk_cap() -> int:
-    """Disk watchdog: when usage passes the configured cap, delete the oldest
-    finished FILES (never records) until we're back under it. Admins see the
-    freed space in the audit log."""
+    """Remove oldest inactive staged files when the configured cap is exceeded."""
     try:
-        cap_bytes = float(db.get_setting("disk_cap_gb") or 0) * 1024 ** 3
-        if cap_bytes <= 0:
+        cap_gb = float(db.get_setting("disk_cap_gb") or 0)
+        if not math.isfinite(cap_gb) or cap_gb <= 0:
             return 0
+        cap_bytes = cap_gb * 1024 ** 3
         used, _ = disk_usage()
         if used <= cap_bytes:
             return 0
-        with _LOCK:
-            finished = sorted((j for j in JOBS.values()
-                               if j.status in ("done", "error", "cancelled")),
-                              key=lambda j: j.created_at)
+        active_ids, active_sources, _ = _active_artifacts()
+        candidates = []
+        for path in config.TMP_DIR.iterdir():
+            try:
+                if path.is_file() and not _is_active_artifact(path, active_ids, active_sources):
+                    candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
         freed = 0
-        for job in finished:
+        for _, path in sorted(candidates, key=lambda item: item[0]):
             if used <= cap_bytes * 0.9:
                 break
-            _delete_files(job.id)   # files only — the DB record stays
-            delta = job.filesize or 0
-            used = max(0, used - delta)
-            freed += delta
+            try:
+                size = path.stat().st_size
+                path.unlink(missing_ok=True)
+                used = max(0, used - size)
+                freed += size
+            except OSError:
+                continue
         return freed
     except Exception:  # noqa: BLE001
         return 0
@@ -387,12 +467,11 @@ def _relay_download_one(job: Job, base: str) -> Path:
     fn = st.get("filename") or "relay.mp4"
     ext = fn.rsplit(".", 1)[-1] if "." in fn else "mp4"
     dest = config.TMP_DIR / f"{job.id}.{ext}"
-    with httpx.stream("GET", f"{base}/api/jobs/{rid}/file", timeout=900,
-                      follow_redirects=True) as resp:
-        resp.raise_for_status()
-        with open(dest, "wb") as fh:
-            for chunk in resp.iter_bytes(1 << 16):
-                fh.write(chunk)
+    # Relay file transfers are subject to the same hard cap as direct media.
+    # The relay is operator-configured; reject redirects rather than silently
+    # fetching a different host from its response.
+    with httpx.Client(timeout=900, follow_redirects=False) as client:
+        _stream_remote_file(client, f"{base}/api/jobs/{rid}/file", dest, job)
     return dest
 
 
@@ -404,7 +483,7 @@ def _download_with_ytdlp(job: Job) -> Path:
         "merge_output_format": "mp4",
         "progress_hooks": [_progress_hook(job)],
         "postprocessor_hooks": [_pp_hook(job)],
-        "max_filesize": int(float(db.get_setting("max_download_mb")) * 1024 * 1024),
+        "max_filesize": _max_download_bytes(),
         "concurrent_fragment_downloads": 4,   # faster DASH/HLS fetches
         "noprogress": True,
     })
@@ -480,47 +559,88 @@ def _download_with_ytdlp(job: Job) -> Path:
     return path
 
 
+def _max_download_bytes() -> int:
+    try:
+        limit_mb = float(db.get_setting("max_download_mb"))
+        if not math.isfinite(limit_mb) or limit_mb <= 0:
+            raise ValueError
+        return int(limit_mb * 1024 * 1024)
+    except (TypeError, ValueError, OverflowError):
+        return config.MAX_DOWNLOAD_BYTES
+
+
+def _stream_remote_file(client, url: str, destination: Path,
+                        job: Job | None = None) -> tuple[int, str]:
+    """Stream a public remote file to disk with a hard byte cap and cleanup."""
+    limit = _max_download_bytes()
+    try:
+        with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "").split(";", 1)[0].lower()
+            try:
+                expected = int(resp.headers.get("content-length") or 0)
+            except ValueError:
+                expected = 0
+            if expected > limit:
+                raise DownloadError(
+                    f"File exceeds the configured {limit // (1024 * 1024)} MB download limit.")
+            downloaded = 0
+            with destination.open("wb") as fh:
+                for chunk in resp.iter_bytes(65536):
+                    if not chunk:
+                        continue
+                    downloaded += len(chunk)
+                    if downloaded > limit:
+                        raise DownloadError(
+                            f"File exceeds the configured {limit // (1024 * 1024)} MB download limit.")
+                    fh.write(chunk)
+                    if job and expected:
+                        job.progress = min(99.0, downloaded / expected * 100)
+            if job:
+                job.progress = 99.0
+            return downloaded, content_type
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+
 def _download_image(job: Job) -> Path:
     """Stream a single image (highest-quality rendition chosen at analyze time)."""
     import httpx
     from extractors import HTTP_HEADERS, referer_for
 
-    url = job.image_url or ""
-    if not url.startswith("http"):
-        raise RuntimeError("No image URL available for this post.")
+    try:
+        url = validate_url(job.image_url or "")
+    except ValueError as exc:
+        raise DownloadError(str(exc)) from exc
 
     headers = dict(HTTP_HEADERS)
     ref = referer_for(url)
     if ref:
         headers["Referer"] = ref
 
-    ext = "jpg"
-    m = re.search(r"\.(jpe?g|png|webp)(?:[?#]|$)", url, re.I)
-    if m:
-        ext = "jpg" if m.group(1).lower() in ("jpg", "jpeg") else m.group(1).lower()
-
     job.status = "downloading"
+    tmp = config.TMP_DIR / f"{job.id}.image.part"
+    with httpx.Client(headers=headers, timeout=30, follow_redirects=True,
+                      event_hooks={"request": [guard_public_request]}) as client:
+        _, content_type = _stream_remote_file(client, url, tmp, job)
+    if content_type and not content_type.startswith("image/") and content_type != "application/octet-stream":
+        tmp.unlink(missing_ok=True)
+        raise DownloadError("The image URL did not return an image file.")
+
+    ext = "jpg"
+    path_part = url.split("#", 1)[0].split("?", 1)[0]
+    match = re.search(r"\.(jpe?g|png|webp)(?:$)", path_part, re.I)
+    if match:
+        ext = "jpg" if match.group(1).lower() in ("jpg", "jpeg") else match.group(1).lower()
+    if "png" in content_type:
+        ext = "png"
+    elif "webp" in content_type:
+        ext = "webp"
+    elif "jpeg" in content_type or "jpg" in content_type:
+        ext = "jpg"
     dest = config.TMP_DIR / f"{job.id}.{ext}"
-    with httpx.Client(headers=headers, timeout=30, follow_redirects=True) as client:
-        with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            ctype = resp.headers.get("content-type", "")
-            if "png" in ctype:
-                ext = "png"
-            elif "webp" in ctype:
-                ext = "webp"
-            elif "jpeg" in ctype or "jpg" in ctype:
-                ext = "jpg"
-            dest = dest.with_suffix("." + ext)
-            total = int(resp.headers.get("content-length") or 0)
-            done = 0
-            with open(dest, "wb") as fh:
-                for chunk in resp.iter_bytes(65536):
-                    fh.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        job.progress = min(99.0, done / total * 100)
-    job.progress = 99.0
+    tmp.replace(dest)
     return dest
 
 
@@ -552,27 +672,26 @@ def _snap_clean(path: Path) -> Path:
 
 
 def _download_direct(job: Job) -> Path:
-    """Download a direct media URL (X syndication CDN, Snapchat spotlight…).
+    """Download a direct media URL with a byte cap and redirect checks.
     In audio mode the mp4 is downloaded then the audio track is extracted."""
     import httpx
     from extractors import HTTP_HEADERS
 
+    try:
+        url = validate_url(job.direct_url or "")
+    except ValueError as exc:
+        raise DownloadError(str(exc)) from exc
+
     job.status = "downloading"
     dest = config.TMP_DIR / f"{job.id}.mp4"
-    with httpx.Client(headers=dict(HTTP_HEADERS), timeout=60,
-                      follow_redirects=True) as client:
-        with client.stream("GET", job.direct_url) as resp:
-            resp.raise_for_status()
-            total = int(resp.headers.get("content-length") or 0)
-            done = 0
-            with open(dest, "wb") as fh:
-                for chunk in resp.iter_bytes(65536):
-                    fh.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        job.progress = min(99.0, done / total * 100)
+    with httpx.Client(headers=dict(HTTP_HEADERS), timeout=60, follow_redirects=True,
+                      event_hooks={"request": [guard_public_request]}) as client:
+        _stream_remote_file(client, url, dest, job)
 
     if job.mode == "audio":
+        if not config.FFMPEG_PATH:
+            dest.unlink(missing_ok=True)
+            raise DownloadError("FFmpeg is not installed on the server.")
         job.status = "processing"
         ext = "mp3" if (job.audio_format or "mp3") == "mp3" else "m4a"
         out = config.TMP_DIR / f"{job.id}.{ext}"
@@ -593,19 +712,26 @@ def _compose_slideshow(job: Job, audio_path: Path) -> Path:
     import httpx
     from extractors import HTTP_HEADERS, referer_for
 
-    # 1) fetch the image next to the audio
-    img_path = config.TMP_DIR / f"{job.id}.img"
+    # 1) fetch the image next to the audio, bounded and without buffering it
+    # all in memory (large remote image URLs must not exhaust the worker).
+    try:
+        image_url = validate_url(job.image_url or "")
+    except ValueError as exc:
+        raise DownloadError(str(exc)) from exc
+    img_tmp = config.TMP_DIR / f"{job.id}.img.part"
     headers = dict(HTTP_HEADERS)
-    ref = referer_for(job.image_url)
+    ref = referer_for(image_url)
     if ref:
         headers["Referer"] = ref
-    with httpx.Client(headers=headers, timeout=30, follow_redirects=True) as client:
-        resp = client.get(job.image_url)
-        resp.raise_for_status()
-        ctype = resp.headers.get("content-type", "")
-        img_ext = ".png" if "png" in ctype else (".webp" if "webp" in ctype else ".jpg")
-        img_path = img_path.with_suffix(img_ext)
-        img_path.write_bytes(resp.content)
+    with httpx.Client(headers=headers, timeout=30, follow_redirects=True,
+                      event_hooks={"request": [guard_public_request]}) as client:
+        _, ctype = _stream_remote_file(client, image_url, img_tmp)
+    if ctype and not ctype.startswith("image/") and ctype != "application/octet-stream":
+        img_tmp.unlink(missing_ok=True)
+        raise DownloadError("The composite image URL did not return an image file.")
+    img_ext = ".png" if "png" in ctype else (".webp" if "webp" in ctype else ".jpg")
+    img_path = config.TMP_DIR / f"{job.id}.img{img_ext}"
+    img_tmp.replace(img_path)
 
     # 2) mux: still image looped for the length of the audio.
     # Output goes to a temp name first — the audio file itself may already

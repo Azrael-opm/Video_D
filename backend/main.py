@@ -29,6 +29,7 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -236,20 +237,28 @@ def download(request: Request, body: DownloadRequest):
     _limit(request, "download_rate_limit")
     try:
         url = extractors.normalize_media_url(extractors.validate_url(body.url))
+        image_url = extractors.validate_url(body.image_url) if body.image_url else None
+        direct_url = extractors.validate_url(body.direct_url) if body.direct_url else None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if body.mode == "video" and not config.FFMPEG_PATH:
+    if body.mode in ("video", "audio") and not config.FFMPEG_PATH:
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
     if body.mode == "audio" and body.audio_format not in ("mp3", "m4a"):
         raise HTTPException(status_code=422, detail="audio_format must be 'mp3' or 'm4a'.")
-    if body.mode == "image" and not (body.image_url or "").startswith("http"):
+    if body.mode == "image" and not image_url:
         raise HTTPException(status_code=422, detail="image mode requires image_url.")
+    if image_url and body.mode not in ("image", "video"):
+        raise HTTPException(status_code=422, detail="image_url is only valid for image or composite-video mode.")
+    if direct_url and body.mode not in ("video", "audio"):
+        raise HTTPException(status_code=422, detail="direct_url is only valid for video or audio mode.")
+    if direct_url and image_url:
+        raise HTTPException(status_code=422, detail="direct_url and image_url cannot be used together.")
 
     job = jobstore.create_job(url, body.mode, body.height, body.audio_format,
-                              image_url=body.image_url, title_hint=body.title,
+                              image_url=image_url, title_hint=body.title,
                               client_ip=auth.client_ip(request),
-                              direct_url=body.direct_url)
+                              direct_url=direct_url)
     return job.snapshot()
 
 
@@ -299,6 +308,17 @@ def job_file(job_id: str):
 # ---------------------------------------------------------------------------
 # Recode Studio — upload, plan, two-pass encode
 # ---------------------------------------------------------------------------
+def _max_upload_mb() -> float:
+    fallback = min(10240.0, max(1.0, config.MAX_UPLOAD_BYTES / (1024 * 1024)))
+    try:
+        value = float(db.get_setting("max_upload_mb"))
+        if math.isfinite(value) and 1 <= value <= 10240:
+            return value
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return fallback
+
+
 @app.post("/api/recode/upload")
 @limiter.limit(BASELINE)
 async def recode_upload(request: Request, file: UploadFile = File(...)):  # noqa: B008 — FastAPI idiom
@@ -307,7 +327,7 @@ async def recode_upload(request: Request, file: UploadFile = File(...)):  # noqa
         raise HTTPException(status_code=503, detail="FFmpeg is not installed on the server.")
     import uuid as _uuid
 
-    max_mb = float(db.get_setting("max_upload_mb") or 800)
+    max_mb = _max_upload_mb()
     suffix = Path(file.filename or "video.mp4").suffix.lower()
     if suffix not in uploads_mod.MEDIA_EXTS:
         suffix = ".mp4"
@@ -379,6 +399,11 @@ def recode_platforms():
             for k, v in uploads_mod.PLATFORM_SPECS.items()]
 
 
+@app.get("/api/recode/config")
+def recode_config():
+    return {"max_upload_mb": _max_upload_mb(), "ffmpeg": bool(config.FFMPEG_PATH)}
+
+
 @app.get("/recode")
 def recode_page():
     return FileResponse(FRONTEND_DIR / "recode.html")
@@ -434,41 +459,37 @@ def _save_cookies_map(cmap: dict[str, str]) -> None:
         converted = _fix_netscape(_to_netscape(text, dom))
         lines.extend(l for l in converted.splitlines()
                      if l and not l.startswith("#"))
+    config.COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     config.COOKIES_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     config.COOKIES_FILE = str(config.COOKIES_PATH)
     db._settings_cache = (0.0, {})
 
 
 def _restore_cookies() -> None:
-    """On ephemeral hosts the cookies file dies with the container; restore it
-    from the stored per-platform map so login-gated platforms keep working.
-    On hosts whose *disk* is ephemeral too (Render free), fall back to
-    COOKIES_B64 / COOKIES_TEXT env vars — env survives restarts."""
-    if config.COOKIES_FILE and Path(config.COOKIES_FILE).exists():
-        return
+    """Restore operator-supplied cookies from disk, settings or environment.
+
+    Session cookies are credentials: none are bundled with the application.
+    """
+    if config.COOKIES_FILE:
+        cookie_path = Path(config.COOKIES_FILE)
+        if cookie_path.is_file() and extractors.cookies_configured():
+            return
+        if cookie_path.is_file():
+            logging.warning("COOKIES_FILE has no usable Netscape cookie entries; ignoring it")
+        else:
+            logging.warning("COOKIES_FILE points to a missing file; checking stored settings instead")
+        config.COOKIES_FILE = None
+
     cmap = _cookies_map()
     env_text = _env_cookies_text()
     if env_text and not cmap:
         dom = os.getenv("COOKIES_DOMAIN", "youtube.com")
+        config.COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
         config.COOKIES_PATH.write_text(_fix_netscape(_to_netscape(env_text, dom)),
                                        encoding="utf-8")
         config.COOKIES_FILE = str(config.COOKIES_PATH)
         return
-    # Bundled default cookies (shipped with the repo, one file per platform
-    # named <domain>.txt) — re-applied on every boot so ephemeral hosts keep
-    # them across redeploys. Missing platforms are filled in (merge, not
-    # replace) so a store that already holds one platform still gains the
-    # rest; admin-saved values always win.
-    seed_dir = Path(__file__).parent / "seed_cookies"
-    if seed_dir.exists():
-        changed = False
-        for f in sorted(seed_dir.glob("*.txt")):
-            if f.stem not in cmap:
-                cmap[f.stem] = f.read_text(encoding="utf-8")
-                changed = True
-        if changed or not config.COOKIES_FILE:
-            _save_cookies_map(cmap)
-    elif cmap:
+    if cmap:
         _save_cookies_map(cmap)
 
 
@@ -913,15 +934,61 @@ def admin_settings(request: Request):
     return {"settings": db.all_settings(), "defaults": db.SETTING_DEFAULTS}
 
 
+_RATE_SETTING_KEYS = {
+    "analyze_rate_limit", "download_rate_limit", "preview_rate_limit",
+    "recode_rate_limit", "upload_rate_limit",
+}
+_INTEGER_SETTING_RANGES = {
+    "job_ttl_seconds": (0, 365 * 86400),
+    "max_download_mb": (1, 10240),
+    "max_upload_mb": (1, 10240),
+    "preview_height": (144, 2160),
+}
+
+
+def _validated_setting(key: str, value: str) -> str:
+    value = str(value).strip()
+    if key in _RATE_SETTING_KEYS:
+        parsed = auth.parse_limit(value)
+        if not parsed or not 1 <= parsed[0] <= 1_000_000:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{key} must be a positive limit such as '15/minute'.")
+        return value
+    if key in _INTEGER_SETTING_RANGES:
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"{key} must be an integer.") from exc
+        minimum, maximum = _INTEGER_SETTING_RANGES[key]
+        if not minimum <= number <= maximum:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{key} must be between {minimum} and {maximum}.")
+        return str(number)
+    if key == "disk_cap_gb":
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="disk_cap_gb must be a number.") from exc
+        if not math.isfinite(number) or not 0 <= number <= 10000:
+            raise HTTPException(
+                status_code=422, detail="disk_cap_gb must be between 0 and 10000.")
+        return str(number)
+    return value
+
+
 @app.put("/api/admin/settings")
 def admin_settings_update(request: Request, body: SettingsUpdate):
     actor = _actor(request)
-    changed = []
-    for key, value in body.settings.items():
-        if key not in db.SETTING_DEFAULTS:
-            continue
-        db.set_setting(key, str(value).strip())
-        changed.append(key)
+    validated = {
+        key: _validated_setting(key, value)
+        for key, value in body.settings.items()
+        if key in db.SETTING_DEFAULTS
+    }
+    for key, value in validated.items():
+        db.set_setting(key, value)
+    changed = list(validated)
     if changed:
         db.audit(actor, "settings", ", ".join(changed))
     return {"ok": True, "changed": changed}

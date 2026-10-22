@@ -70,8 +70,6 @@ const PLATFORMS = {
   },
   youtube: {
     name: "YouTube",
-    hold: true,
-    holdMsg: "YouTube downloads are on hold while we work on a fix — back soon! 🚧",
     icon: (c = "#FF0000") => `
       <svg viewBox="0 0 24 24" width="16" height="16" fill="${c}">
         <path d="M21.6 7.2a2.5 2.5 0 0 0-1.76-1.77C18.25 5 12 5 12 5s-6.25 0-7.84.43A2.5 2.5 0 0 0 2.4 7.2 26.3 26.3 0 0 0 2 12a26.3 26.3 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.76 1.77C5.75 19 12 19 12 19s6.25 0 7.84-.43a2.5 2.5 0 0 0 1.76-1.77A26.3 26.3 0 0 0 22 12a26.3 26.3 0 0 0-.4-4.8ZM10 15.2V8.8L15.5 12 10 15.2Z"/>
@@ -92,6 +90,8 @@ const state = {
   previewTimer: null,
   previewUrl: null,       // finished 480p preview file
   downloading: false,
+  analyzeRequest: 0,
+  previewRequest: 0,
 };
 
 const els = {
@@ -180,6 +180,8 @@ function isComposite(m) {
 
 function resetMediaUI() {
   stopPolling();
+  state.previewRequest += 1;
+  state.previewEligible = false;
   if (state.previewTimer) { clearTimeout(state.previewTimer); state.previewTimer = null; }
   state.previewUrl = null;
   els.thumbBox.querySelectorAll("video, audio").forEach((el) => el.remove());
@@ -193,39 +195,60 @@ function resetMediaUI() {
 // Analyze flow
 // --------------------------------------------------------------
 async function analyze() {
+  const requestId = ++state.analyzeRequest;
   const urls = extractUrls(els.input.value);
-  if (!urls.length) { showToast("Paste a link first.", "warn"); return; }
+  if (!urls.length) {
+    els.skeleton.classList.add("hidden");
+    setBusy(false);
+    showToast("Paste a link first.", "warn");
+    return;
+  }
+
+  resetMediaUI();
+  state.meta = null;
+  state.job = null;
+  state.downloading = false;
+  els.card.classList.add("hidden");
+  els.skeleton.classList.add("hidden");
+  els.panel.classList.add("hidden");
+  els.toast.classList.add("hidden");
 
   // Bulk mode: several pasted links → tray of rows instead of one card.
   if (urls.length > 1) {
-    resetMediaUI();
+    $("bulkBox").classList.remove("hidden");
     setBusy(true);
-    try { await runBulk(urls); } finally { setBusy(false); }
+    try {
+      await runBulk(urls, requestId);
+    } finally {
+      if (requestId === state.analyzeRequest) setBusy(false);
+    }
     return;
   }
+
   const url = urls[0];
   $("bulkBox").classList.add("hidden");
-
   const held = detectPlatform(url);
-  if (held && PLATFORMS[held].hold) { showToast(PLATFORMS[held].holdMsg, "warn"); return; }
+  if (held && PLATFORMS[held].hold) {
+    setBusy(false);
+    showToast(PLATFORMS[held].holdMsg, "warn");
+    return;
+  }
 
-  resetMediaUI();
-  state.meta = null; state.job = null; state.downloading = false;
-  els.toast.classList.add("hidden");
-  els.card.classList.add("hidden");
   els.skeleton.classList.remove("hidden");
   setBusy(true);
-
   try {
     const meta = await api("/api/analyze", { url });
+    if (requestId !== state.analyzeRequest) return;
     state.meta = meta;
     renderPreview();
     setupPreview();
   } catch (err) {
-    showToast(err.message);
+    if (requestId === state.analyzeRequest) showToast(err.message);
   } finally {
-    els.skeleton.classList.add("hidden");
-    setBusy(false);
+    if (requestId === state.analyzeRequest) {
+      els.skeleton.classList.add("hidden");
+      setBusy(false);
+    }
   }
 }
 
@@ -286,11 +309,16 @@ function fillQualitySelect() {
   } else {
     opts = m.audio_options;
   }
-  els.select.innerHTML = opts.map((o, i) => {
+  const fragment = document.createDocumentFragment();
+  opts.forEach((o, i) => {
+    const option = document.createElement("option");
+    option.value = String(i);
     const size = o.filesize ? ` · ~${fmtBytes(o.filesize)}` : "";
     const extra = o.fps && o.fps > 30 ? ` · ${Math.round(o.fps)}fps` : "";
-    return `<option value="${i}">${o.label}${extra}${state.mode !== "photos" ? size : ""}</option>`;
-  }).join("");
+    option.textContent = `${o.label || "Download"}${extra}${state.mode !== "photos" ? size : ""}`;
+    fragment.appendChild(option);
+  });
+  els.select.replaceChildren(fragment);
 }
 
 // --------------------------------------------------------------
@@ -316,11 +344,14 @@ function setupPreview() {
   }
 }
 
-function pollPreview(jobId) {
+function pollPreview(jobId, requestId) {
+  if (requestId !== state.previewRequest) return;
   if (state.previewTimer) clearTimeout(state.previewTimer);
   const tick = async () => {
+    if (requestId !== state.previewRequest) return;
     try {
       const job = await api(`/api/jobs/${jobId}?t=${Date.now()}`);
+      if (requestId !== state.previewRequest) return;
       if (job.status === "done") {
         state.previewUrl = job.download_url;
         els.durBadge.classList.add("hidden");         // player shows duration
@@ -331,13 +362,15 @@ function pollPreview(jobId) {
       if (job.status === "error") {
         els.playBtn.disabled = false;
         setPlayLabel("Play preview");
-        toast("Preview unavailable: " + (job.error || "unknown error"));
+        showToast("Preview unavailable: " + (job.error || "unknown error"));
         return;
       }
       state.previewTimer = setTimeout(tick, 800);
     } catch (e) {
+      if (requestId !== state.previewRequest) return;
       els.playBtn.disabled = false;
       setPlayLabel("Play preview");
+      showToast("Preview unavailable: " + e.message);
     }
   };
   state.previewTimer = setTimeout(tick, 600);
@@ -350,15 +383,19 @@ els.playBtn.addEventListener("click", () => {
     if (video && video.tagName === "VIDEO") video.play().catch(() => {});
     return;
   }
+  const requestId = ++state.previewRequest;
   els.playBtn.disabled = true;
   setPlayLabel("Loading preview…");
   const url = state.meta.webpage_url || state.meta.url;
   api("/api/preview", { url })
-    .then((job) => pollPreview(job.id))
+    .then((job) => {
+      if (requestId === state.previewRequest) pollPreview(job.id, requestId);
+    })
     .catch((e) => {
+      if (requestId !== state.previewRequest) return;
       els.playBtn.disabled = false;
       setPlayLabel("Play preview");
-      toast("Preview unavailable: " + e.message);
+      showToast("Preview unavailable: " + e.message);
     });
 });
 
@@ -542,13 +579,14 @@ function extractUrls(t) {
 
 const BULK = [];
 
-async function runBulk(urls) {
+async function runBulk(urls, requestId) {
   els.card.classList.add("hidden");
   $("bulkBox").classList.remove("hidden");
   $("bulkCount").textContent = urls.length;
   $("bulkList").innerHTML = "";
   BULK.length = 0;
   for (const u of urls) {
+    if (requestId !== state.analyzeRequest) return;
     const row = { url: u, meta: null, started: false, el: document.createElement("div") };
     row.el.className = "flex flex-wrap items-center gap-2.5 bg-mist/60 rounded-2xl px-4 py-3 text-sm";
     row.el.innerHTML = `<span class="flex-1 min-w-0 truncate text-smoke">${esc(u)}</span>` +
@@ -557,8 +595,10 @@ async function runBulk(urls) {
     BULK.push(row);
     try {
       row.meta = await api("/api/analyze", { url: u });
+      if (requestId !== state.analyzeRequest) return;
       fillRow(row);
     } catch (e) {
+      if (requestId !== state.analyzeRequest) return;
       const st = row.el.querySelector(".bulk-status");
       st.textContent = "✕ " + e.message.slice(0, 70);
       st.className = "bulk-status text-xs text-red-500 shrink-0";
@@ -691,14 +731,25 @@ function setActivePill(platform) {
 }
 
 function detectPlatform(url) {
-  const host = (() => { try { return new URL(url.includes("://") ? url : `https://${url}`).hostname; } catch { return ""; } })();
-  return Object.keys(PLATFORMS).find((k) => {
-    const pats = { tiktok: /tiktok/, instagram: /instagram/, snapchat: /snapchat/,
-                   facebook: /facebook|fb\./, twitter: /(^|\.)(twitter|x)\.|^t\.co$/,
-                   reddit: /reddit|redd\.it/, pinterest: /pinterest|pin\.it/,
-                   youtube: /youtube|youtu\.be/ };
-    return pats[k]?.test(host);
-  }) || null;
+  const host = (() => {
+    try { return new URL(url.includes("://") ? url : `https://${url}`).hostname.toLowerCase().replace(/\.$/, ""); }
+    catch { return ""; }
+  })();
+  const domains = {
+    tiktok: ["tiktok.com"],
+    instagram: ["instagram.com", "instagr.am"],
+    snapchat: ["snapchat.com"],
+    facebook: ["facebook.com", "fb.watch", "fb.com", "fb.video"],
+    twitter: ["twitter.com", "x.com", "t.co"],
+    reddit: ["reddit.com", "redd.it"],
+    pinterest: ["pinterest.com", "pinterest.co.uk", "pinterest.ca", "pin.it"],
+    youtube: ["youtube.com", "youtu.be"],
+  };
+  for (const [platform, suffixes] of Object.entries(domains)) {
+    if (suffixes.some((domain) => host === domain || host.endsWith(`.${domain}`))) return platform;
+    if (platform === "pinterest" && /(?:^|\.)pinterest\.(?:[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$/.test(host)) return platform;
+  }
+  return null;
 }
 
 function onInput() {

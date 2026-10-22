@@ -271,9 +271,11 @@ settings survive.
 - [ ] Enable 2FA (Security tab)
 - [ ] Set `disk_cap_gb` for your disk, and rate limits for your hardware
 - [ ] Serve behind HTTPS (nginx/Caddy); consider IP-restricting `/admin` at the proxy
+- [ ] If reverse-proxied, set `FORWARDED_ALLOW_IPS` to the trusted proxy IPs; avoid `*` unless the app is reachable only through that proxy
+- [ ] Restrict outbound network access at the host/firewall; application URL checks alone cannot eliminate DNS-rebinding SSRF
 - [ ] Keep yt-dlp fresh: `pip install -U yt-dlp` (the Health tab warns after 14 days)
 - [ ] Back up `nyx.sqlite3` if you care about history (snapshot it to a separate branch — e.g. `nyx-data` — never to `main`)
-- [ ] On ephemeral-disk hosts (Render free), dashboard-saved cookies die on restart — the bundled `seed_cookies/` (and `COOKIES_B64`/`COOKIES_TEXT`) keep login-gated platforms unlocked across redeploys
+- [ ] On ephemeral-disk hosts, configure operator-managed cookies through environment variables or Admin → Security if needed; never commit session-cookie files
 
 ### Persistent history on ephemeral hosts (Render / Railway free)
 
@@ -283,9 +285,12 @@ survive: create a free Turso database (turso.tech), then set `TURSO_URL`
 (`libsql://…`) + `TURSO_TOKEN`. All hosts sharing those vars share one live
 database. Without either option the app silently keeps local SQLite.
 
-Default cookies ship bundled in `backend/seed_cookies/` — one file per platform,
-named `<domain>.txt` — and re-apply on every boot. Dashboard-saved values win
-over the bundled seeds.
+No session cookies are bundled. If an operator configures cookies through the
+admin console or `COOKIES_FILE` / `COOKIES_B64` / `COOKIES_TEXT`, the app can
+restore those operator-supplied values after a restart. Treat cookie files as
+credentials: do not commit them. On deployments that ran older versions, remove
+any seed cookies already persisted in settings, revoke those sessions, and
+purge the exposed commit from Git history before sharing the repository.
 
 ## Why platforms gate servers — and the real fixes
 
@@ -381,8 +386,7 @@ nyx-downloader/
 │   ├── uploads.py         # Recode Studio upload store + plan/size math
 │   ├── config.py          # env-driven config (ffmpeg, limits, TTL, caps)
 │   ├── entrypoint.sh      # container entrypoint
-│   ├── seed_cookies/      # bundled per-platform cookies, re-applied on every boot
-│   └── requirements.txt
+│   └── requirements.txt   # runtime dependencies
 ├── frontend/
 │   ├── index.html         # Apple-style Tailwind UI (downloader)
 │   ├── recode.html        # Recode Studio (compress / sync / repair)

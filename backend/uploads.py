@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import config
+import db
 
 # ---------------------------------------------------------------------------
 # Platform publishing specs — ceilings that keep platforms from re-encoding.
@@ -80,14 +81,41 @@ def get_upload_from_path(path: str) -> Upload | None:
 
 
 def purge_expired_uploads() -> int:
-    now = time.time()
+    try:
+        ttl = max(0, int(float(db.get_setting("job_ttl_seconds"))))
+    except (TypeError, ValueError, OverflowError):
+        ttl = config.JOB_TTL_SECONDS
+    if ttl <= 0:
+        return 0
+
+    active_sources: set[Path] = set()
+    try:
+        import jobs as jobstore
+        with jobstore._LOCK:
+            for job in jobstore.JOBS.values():
+                if job.status in ("queued", "downloading", "processing") and job.source_path:
+                    try:
+                        active_sources.add(Path(job.source_path).resolve())
+                    except OSError:
+                        pass
+    except Exception:  # noqa: BLE001 — cleanup must not break the worker loop
+        pass
+
+    cutoff = time.time() - ttl
     with _ULOCK:
-        stale = [u for u in UPLOADS.values() if now - u.created_at > config.JOB_TTL_SECONDS]
-        for u in stale:
-            UPLOADS.pop(u.id, None)
-    for u in stale:
+        stale = []
+        for upload in UPLOADS.values():
+            try:
+                active = Path(upload.path).resolve() in active_sources
+            except OSError:
+                active = False
+            if upload.created_at <= cutoff and not active:
+                stale.append(upload)
+        for upload in stale:
+            UPLOADS.pop(upload.id, None)
+    for upload in stale:
         try:
-            Path(u.path).unlink(missing_ok=True)
+            Path(upload.path).unlink(missing_ok=True)
         except OSError:
             pass
     return len(stale)

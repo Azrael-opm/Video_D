@@ -7,6 +7,7 @@ in dev, behind a proxy, or in a container.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 # Bumped on every deploy-relevant change; shown in /health and Admin → Server
@@ -22,13 +23,32 @@ BUILD_TAG = os.getenv("BUILD_TAG", "2026.09.16-1")
 # ---------------------------------------------------------------------------
 def _resolve_ffmpeg() -> str | None:
     env = os.getenv("FFMPEG_PATH")
+    candidates: list[Path] = []
     if env:
-        return env
+        located = shutil.which(env)
+        path = Path(located or env).expanduser()
+        if path.is_dir():
+            candidates.extend(path / name for name in ("ffmpeg", "ffmpeg.exe"))
+        else:
+            candidates.append(path)
+
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        candidates.append(Path(imageio_ffmpeg.get_ffmpeg_exe()))
     except Exception:
-        return None
+        pass
+
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        candidates.append(Path(system_ffmpeg))
+
+    for candidate in candidates:
+        try:
+            if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
+                return str(candidate.resolve())
+        except (OSError, RuntimeError):
+            continue
+    return None
 
 
 FFMPEG_PATH: str | None = _resolve_ffmpeg()

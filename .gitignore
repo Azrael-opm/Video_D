@@ -15,6 +15,7 @@ backend/nyx.sqlite3*
 .env.*
 cookies.txt
 *.cookies
+backend/seed_cookies/
 
 # Python
 __pycache__/

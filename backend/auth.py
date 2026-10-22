@@ -11,8 +11,9 @@ import hmac
 import re
 import secrets
 import struct
+import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 
 import db
 
@@ -70,7 +71,9 @@ def otpauth_uri(secret_b32: str, username: str) -> str:
 # Dynamic rate guard — sliding windows per (ip, bucket). Limits come from the
 # live settings table so dashboard edits apply immediately.
 # ---------------------------------------------------------------------------
-_WINDOWS: dict[str, deque] = defaultdict(deque)
+_WINDOWS: dict[tuple[str, str], deque[float]] = {}
+_WINDOWS_LOCK = threading.Lock()
+_LAST_SWEEP = 0.0
 
 
 def parse_limit(expr: str) -> tuple[int, float] | None:
@@ -83,23 +86,53 @@ def parse_limit(expr: str) -> tuple[int, float] | None:
     return n, float(secs)
 
 
+DEFAULT_RATE_LIMITS = {
+    "analyze_rate_limit": "15/minute",
+    "download_rate_limit": "8/hour",
+    "preview_rate_limit": "30/hour",
+    "recode_rate_limit": "12/hour",
+    "upload_rate_limit": "10/hour",
+}
+
+
 def rate_allowed(ip: str, bucket: str, setting_key: str) -> bool:
+    global _LAST_SWEEP
     limit = parse_limit(db.get_setting(setting_key))
+    if not limit or not 1 <= limit[0] <= 1_000_000:
+        limit = parse_limit(DEFAULT_RATE_LIMITS.get(setting_key, "15/minute"))
     if not limit:
         return True
     n, window = limit
-    now = time.time()
-    dq = _WINDOWS[f"{ip}|{bucket}"]
-    while dq and now - dq[0] > window:
-        dq.popleft()
-    if len(dq) >= n:
-        return False
-    dq.append(now)
-    return True
+    now = time.monotonic()
+    key = (ip, bucket)
+    with _WINDOWS_LOCK:
+        dq = _WINDOWS.get(key, deque())
+        while dq and now - dq[0] >= window:
+            dq.popleft()
+        allowed = len(dq) < n
+        if allowed:
+            dq.append(now)
+            _WINDOWS[key] = dq
+        elif dq:
+            _WINDOWS[key] = dq
+        else:
+            _WINDOWS.pop(key, None)
+
+        # Drop idle client keys periodically so long-lived public services do
+        # not retain one deque for every IP that has ever visited.
+        if now - _LAST_SWEEP > 300:
+            cutoff = now - 86400
+            for old_key, events in tuple(_WINDOWS.items()):
+                if not events or events[-1] < cutoff:
+                    _WINDOWS.pop(old_key, None)
+            _LAST_SWEEP = now
+        return allowed
 
 
 def client_ip(request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # Uvicorn's ProxyHeadersMiddleware rewrites request.client only for peers
+    # in FORWARDED_ALLOW_IPS. Never trust X-Forwarded-For directly: a public
+    # caller can forge it to evade bans and per-IP rate limits.
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None)
+    return str(host) if host else "unknown"

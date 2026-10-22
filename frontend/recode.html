@@ -154,7 +154,7 @@
         <path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/>
       </svg>
       <p class="mt-3 font-medium">Drop your video here, or <span class="grad-text font-semibold">browse</span></p>
-      <p class="text-smoke text-xs mt-1.5">MP4 · MOV · MKV · WEBM — up to 800 MB</p>
+      <p id="uploadLimitHint" class="text-smoke text-xs mt-1.5">MP4 · MOV · MKV · WEBM — up to 800 MB</p>
       <input id="fileInput" type="file" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" class="hidden" />
     </div>
     <div id="uploadProgress" class="hidden mt-4">
@@ -318,7 +318,7 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const state = { upload: null, plan: null, platforms: [], jobId: null, timer: null, fn: "compress" };
+const state = { upload: null, plan: null, platforms: [], maxUploadMB: 800, jobId: null, timer: null, fn: "compress" };
 
 const fmtMB = (b) => (b / 1048576).toFixed(b >= 104857600 ? 0 : 1);
 const fmtDur = (s) => { s = Math.round(s || 0); const m = Math.floor(s/60), sec = s%60;
@@ -356,24 +356,55 @@ dz.addEventListener("drop", (e) => { if (e.dataTransfer.files[0]) uploadFile(e.d
 fi.addEventListener("change", () => { if (fi.files[0]) uploadFile(fi.files[0]); });
 $("changeFileBtn").addEventListener("click", () => { fi.value = ""; fi.click(); });
 
+let uploadRequest = 0;
+let uploadXhr = null;
 function uploadFile(file) {
-  if (file.size > 800 * 1048576) { toast("That file is over the 800 MB limit."); return; }
+  const requestId = ++uploadRequest;
+  if (uploadXhr) {
+    uploadXhr.abort();
+    uploadXhr = null;
+  }
+  const maxUploadMB = Number(state.maxUploadMB) || 800;
+  if (file.size > maxUploadMB * 1048576) {
+    $("uploadProgress").classList.add("hidden");
+    $("upFill").style.width = "0%";
+    toast(`That file is over the ${Math.round(maxUploadMB)} MB limit.`);
+    return;
+  }
+
+  state.upload = null;
+  state.plan = null;
+  fetchPlan();
+  $("fileCard").classList.add("hidden");
+  $("optionsCard").classList.add("hidden");
+  $("planBox").classList.add("hidden");
+  $("progressCard").classList.add("hidden");
+  $("errorBox").classList.add("hidden");
   const fd = new FormData();
   fd.append("file", file);
   const xhr = new XMLHttpRequest();
+  uploadXhr = xhr;
   $("uploadProgress").classList.remove("hidden");
   $("upLabel").textContent = `Uploading ${file.name}…`;
   xhr.upload.onprogress = (e) => {
-    if (!e.lengthComputable) return;
+    if (requestId !== uploadRequest || !e.lengthComputable) return;
     const pct = Math.round(e.loaded / e.total * 100);
     $("upFill").style.width = pct + "%";
     $("upPct").textContent = pct + "%";
   };
   xhr.onload = () => {
+    if (requestId !== uploadRequest) return;
+    uploadXhr = null;
     $("uploadProgress").classList.add("hidden");
     $("upFill").style.width = "0%";
     if (xhr.status >= 200 && xhr.status < 300) {
-      state.upload = JSON.parse(xhr.responseText);
+      try {
+        state.upload = JSON.parse(xhr.responseText);
+      } catch {
+        $("progressCard").classList.remove("hidden");
+        showErrorReport("upload", "The server returned an invalid upload response.");
+        return;
+      }
       $("errorBox").classList.add("hidden");
       renderFileInfo();
     } else {
@@ -384,6 +415,8 @@ function uploadFile(file) {
     }
   };
   xhr.onerror = () => {
+    if (requestId !== uploadRequest) return;
+    uploadXhr = null;
     $("uploadProgress").classList.add("hidden");
     $("progressCard").classList.remove("hidden");
     showErrorReport("upload",
@@ -449,44 +482,55 @@ function renderChips() {
 
 /* ---------- plan ---------- */
 let planTimer = null;
+let planRequest = 0;
 function fetchPlan() {
-  if (!state.upload) return;
+  if (!state.upload) {
+    planRequest += 1;
+    state.plan = null;
+    $("recodeBtn").disabled = true;
+    return;
+  }
+  const requestId = ++planRequest;
+  const uploadId = state.upload.upload_id;
+  const mode = state.fn;
+  const preset = $("platformSelect").value;
+  const mb = parseFloat($("targetInput").value);
+  state.plan = null;
+  $("recodeBtn").disabled = true;
   clearTimeout(planTimer);
   planTimer = setTimeout(async () => {
-    const mb = parseFloat($("targetInput").value);
-    const params = new URLSearchParams({ upload_id: state.upload.upload_id, mode: state.fn,
-                                         preset: $("platformSelect").value, t: Date.now() });
-    if (state.fn === "compress") {
-      if (!mb || mb <= 0) {
+    if (requestId !== planRequest || uploadId !== state.upload?.upload_id) return;
+    const params = new URLSearchParams({ upload_id: uploadId, mode, preset, t: Date.now() });
+    if (mode === "compress") {
+      if (!Number.isFinite(mb) || mb <= 0) {
         // No valid target yet — show a hint instead of spamming 422s at the server.
-        state.plan = null;
         $("planBox").classList.remove("hidden");
         $("planRating").className = "text-xs font-bold px-2.5 py-1 rounded-lg bg-mist text-smoke";
         $("planRating").textContent = "Pick a size";
         $("planSize").textContent = "";
         $("planNote").textContent = "Enter a target size (or tap a chip) to see the plan.";
-        $("planWarns").innerHTML = "";
+        $("planWarns").replaceChildren();
         $("planVbr").textContent = $("planAbr").textContent = $("planRes").textContent = $("planEnc").textContent = "—";
-        $("recodeBtn").disabled = true;
         return;
       }
-      params.set("target_mb", mb);
+      params.set("target_mb", String(mb));
     }
     try {
       const plan = await api(`/api/recode/plan?${params}`);
+      if (requestId !== planRequest || uploadId !== state.upload?.upload_id) return;
       state.plan = plan;
       renderPlan(plan);
       $("recodeBtn").disabled = false;
     } catch (e) {
+      if (requestId !== planRequest || uploadId !== state.upload?.upload_id) return;
       state.plan = null;
       $("planBox").classList.remove("hidden");
       $("planRating").className = "text-xs font-bold px-2.5 py-1 rounded-lg bg-red-500/15 text-red-600 dark:text-red-300";
       $("planRating").textContent = "Can't do that";
       $("planSize").textContent = "";
       $("planNote").textContent = e.message;
-      $("planWarns").innerHTML = "";
+      $("planWarns").replaceChildren();
       $("planVbr").textContent = $("planAbr").textContent = $("planRes").textContent = $("planEnc").textContent = "—";
-      $("recodeBtn").disabled = true;
     }
   }, 350);
 }
@@ -682,34 +726,21 @@ function pollJob() {
   state.timer = setTimeout(tick, 800);
 }
 
-async function deliver(job) {
+function deliver(job) {
   $("recodeBtn").disabled = false;
   $("recodeBtnLabel").textContent = "Start again";
-  try {
-    const res = await fetch(job.download_url);
-    const blob = await res.blob();
-    if (deliver._url) URL.revokeObjectURL(deliver._url);
-    deliver._url = URL.createObjectURL(blob);
-    triggerSave(deliver._url, job.filename);
-    $("saveLink").href = deliver._url;
-    $("saveLink").setAttribute("download", job.filename);
-  } catch (e) {
-    $("saveLink").href = job.download_url;
-    $("saveLink").removeAttribute("download");
-    triggerSave(job.download_url, job.filename);
+  if (!job.download_url) {
+    failJob("The server finished the recode but did not return a download link.");
+    return;
   }
+  const link = $("saveLink");
+  link.href = job.download_url;
+  link.setAttribute("download", job.filename || "recode.mp4");
   $("doneRow").classList.remove("hidden");
-  toast(`Recode complete — ${(job.filesize/1048576).toFixed(1)} MB.`, "success");
-}
-
-function triggerSave(href, name) {
-  const a = document.createElement("a");
-  a.href = href;
-  if (name) a.download = name;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  toast(`Recode complete — ${(Number(job.filesize || 0)/1048576).toFixed(1)} MB.`, "success");
+  // The response is an attachment. Navigate directly rather than buffering
+  // the whole output in a Blob, which could exhaust memory on large videos.
+  window.location.assign(job.download_url);
 }
 
 function failJob(msg, kind = "job") {
@@ -724,7 +755,13 @@ function failJob(msg, kind = "job") {
 $("againBtn").addEventListener("click", () => location.reload());
 
 /* ---------- boot ---------- */
-api("/api/recode/platforms").then((p) => { state.platforms = p; }).catch(() => {});
+Promise.all([api("/api/recode/platforms"), api("/api/recode/config")]).then(([platforms, cfg]) => {
+  state.platforms = platforms;
+  if (Number.isFinite(Number(cfg.max_upload_mb)) && Number(cfg.max_upload_mb) > 0) {
+    state.maxUploadMB = Number(cfg.max_upload_mb);
+  }
+  $("uploadLimitHint").textContent = `MP4 · MOV · MKV · WEBM — up to ${Math.round(state.maxUploadMB)} MB`;
+}).catch(() => {});
 </script>
 
 <script>

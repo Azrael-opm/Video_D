@@ -19,10 +19,12 @@ Watermark notes
 from __future__ import annotations
 
 import html as html_mod
+import ipaddress
 import json
 import logging
 import random
 import re
+import socket
 import time
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit
@@ -68,15 +70,15 @@ def referer_for(url: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
-PLATFORM_PATTERNS: dict[str, re.Pattern] = {
-    "tiktok":    re.compile(r"(tiktok\.com|vm\.tiktok|vt\.tiktok)", re.I),
-    "instagram": re.compile(r"instagram\.com|instagr\.am", re.I),
-    "snapchat":  re.compile(r"snapchat\.com|t\.snapchat\.com", re.I),
-    "facebook":  re.compile(r"facebook\.com|fb\.watch|fb\.com|fb\.video", re.I),
-    "twitter":   re.compile(r"(^|\.)((twitter|x)\.com|t\.co)$", re.I),
-    "reddit":    re.compile(r"reddit\.com|redd\.it", re.I),
-    "pinterest": re.compile(r"pinterest\.[a-z.]+|pin\.it", re.I),
-    "youtube":   re.compile(r"youtube\.com|youtu\.be", re.I),
+PLATFORM_HOSTS: dict[str, tuple[str, ...]] = {
+    "tiktok": ("tiktok.com",),
+    "instagram": ("instagram.com", "instagr.am"),
+    "snapchat": ("snapchat.com",),
+    "facebook": ("facebook.com", "fb.watch", "fb.com", "fb.video"),
+    "twitter": ("twitter.com", "x.com", "t.co"),
+    "reddit": ("reddit.com", "redd.it"),
+    "pinterest": ("pinterest.com", "pinterest.co.uk", "pinterest.ca", "pin.it"),
+    "youtube": ("youtube.com", "youtu.be"),
 }
 
 PLATFORM_META = {
@@ -92,22 +94,83 @@ PLATFORM_META = {
 }
 
 
+def _is_domain_or_subdomain(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
 def detect_platform(url: str) -> str:
-    host = urlparse(url if "://" in url else f"https://{url}").netloc
-    for platform, pattern in PLATFORM_PATTERNS.items():
-        if pattern.search(host):
+    try:
+        candidate = url if "://" in url else f"https://{url}"
+        host = (urlsplit(candidate).hostname or "").rstrip(".").lower()
+    except ValueError:
+        return "generic"
+    for platform, domains in PLATFORM_HOSTS.items():
+        if any(_is_domain_or_subdomain(host, domain) for domain in domains):
+            return platform
+        if platform == "pinterest" and re.search(
+            r"(?:^|\.)pinterest\.(?:[a-z]{2}|co\.[a-z]{2}|com\.[a-z]{2})$", host
+        ):
             return platform
     return "generic"
 
 
 def validate_url(url: str) -> str:
-    url = url.strip()
-    if not re.match(r"^https?://", url, re.I):
+    """Accept public HTTP(S) URLs only; reject local/private network targets.
+
+    This is a preflight SSRF guard for user-supplied links. Network-level
+    egress filtering should still be used in production to defend against DNS
+    rebinding between validation and the eventual request.
+    """
+    url = (url or "").strip()
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("That doesn't look like a valid URL.") from exc
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
         raise ValueError("URL must start with http:// or https://")
-    parsed = urlparse(url)
-    if not parsed.netloc or "." not in parsed.netloc:
-        raise ValueError("That doesn't look like a valid URL.")
+    if not host or parsed.username is not None or parsed.password is not None:
+        raise ValueError("That doesn't look like a valid public URL.")
+
+    host = host.rstrip(".").lower()
+    if not host or host == "localhost" or host.endswith((
+        ".localhost", ".local", ".internal", ".test", ".invalid", ".example", ".home", ".lan"
+    )):
+        raise ValueError("Private or local network URLs are not allowed.")
+
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        if "." not in host:
+            raise ValueError("That doesn't look like a valid public URL.") from None
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+            answers = socket.getaddrinfo(
+                ascii_host, port or (443 if scheme == "https" else 80),
+                type=socket.SOCK_STREAM)
+            addresses = [ipaddress.ip_address(answer[4][0].split("%", 1)[0])
+                         for answer in answers]
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise ValueError("The URL host could not be resolved safely.") from exc
+
+    if not addresses:
+        raise ValueError("The URL host could not be resolved safely.")
+    for address in addresses:
+        if address.version == 6 and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        if not address.is_global:
+            raise ValueError("Private or local network URLs are not allowed.")
     return url
+
+
+def guard_public_request(request) -> None:
+    """HTTPX event hook: re-check every outgoing request, including redirects."""
+    try:
+        validate_url(str(request.url))
+    except ValueError as exc:
+        raise DownloadError(str(exc)) from exc
 
 
 def _strip_ansi(s: str) -> str:
@@ -248,12 +311,14 @@ def _pinterest_fallback(url: str) -> Optional[dict]:
         return None
     pin_id = m.group(1)
     try:
-        resp = httpx.get(
-            "https://www.pinterest.com/resource/PinResource/get/",
-            params={"data": json.dumps({"options": {
-                "id": pin_id, "field_set_key": "unauth_react_main_pin"}})},
+        with httpx.Client(
             headers={**HTTP_HEADERS, "X-Pinterest-PWS-Handler": "www/[username].js"},
-            timeout=15, follow_redirects=True)
+            timeout=15, follow_redirects=True,
+            event_hooks={"request": [guard_public_request]}) as client:
+            resp = client.get(
+                "https://www.pinterest.com/resource/PinResource/get/",
+                params={"data": json.dumps({"options": {
+                    "id": pin_id, "field_set_key": "unauth_react_main_pin"}})})
         resp.raise_for_status()
         data = resp.json()["resource_response"]["data"] or {}
     except Exception:  # noqa: BLE001
@@ -489,7 +554,9 @@ def _og_fallback(url: str, platform: str) -> Optional[dict]:
     Works for image posts on X/Twitter, Reddit, Facebook, TikTok covers,
     Snapchat, and anything else that publishes og:image."""
     try:
-        resp = httpx.get(url, headers=HTTP_HEADERS, timeout=15, follow_redirects=True)
+        with httpx.Client(headers=HTTP_HEADERS, timeout=15, follow_redirects=True,
+                          event_hooks={"request": [guard_public_request]}) as client:
+            resp = client.get(url)
         if resp.status_code != 200:
             return None
         page = resp.text
@@ -581,7 +648,18 @@ def base_opts(*, skip_download: bool = True, with_cookies: bool = False) -> dict
 
 
 def cookies_configured() -> bool:
-    return bool(config.COOKIES_FILE)
+    """Only enable yt-dlp cookie retries when the configured jar has entries."""
+    if not config.COOKIES_FILE:
+        return False
+    try:
+        with open(config.COOKIES_FILE, encoding="utf-8") as cookie_file:
+            for line in cookie_file:
+                fields = line.rstrip("\r\n").split("\t")
+                if len(fields) >= 7 and fields[5] and fields[6]:
+                    return True
+    except OSError:
+        return False
+    return False
 
 
 def gateish(raw: str) -> bool:
